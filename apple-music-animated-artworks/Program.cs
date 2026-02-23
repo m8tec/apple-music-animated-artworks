@@ -50,7 +50,7 @@ try
     app.UseDefaultFiles();
     app.UseStaticFiles();
 
-    app.MapGet("/api/v1/artwork", async (
+    app.MapGet("/api/v1/artwork/search", async (
         [FromQuery] string artist, 
         [FromQuery] string album, 
         [FromServices] ArtworkService service,
@@ -72,7 +72,7 @@ try
         return Results.NotFound(new { message = "No animated artwork found." });
     });
 
-    app.MapGet("/api/v1/artwork/by-url", async (
+    app.MapGet("/api/v1/artwork/url", async (
         [FromQuery] string url, 
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,

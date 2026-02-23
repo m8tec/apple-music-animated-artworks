@@ -11,13 +11,16 @@ body {
 }
 
 .history-item {
-    transition: all 0.2s ease;
+    transition: transform 0.3s ease-out, background-color 0.3s ease-out, box-shadow 0.3s ease-out !important;
+    transform: scale(1) !important;
+    will-change: transform;
 }
 
-.history-item:hover { 
-    background: rgba(255, 255, 255, 0.1); 
-    cursor: pointer; 
-    transform: translateX(4px);
+.history-item:hover {
+    transform: scale(1.03) !important;
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+    z-index: 10;
 }
 
 .tab-inactive {

@@ -19,11 +19,11 @@ A lightweight tool to fetch and display Apple Music’s animated album covers (H
 
 **Get Artwork by Details**
 
-```GET /api/v1/artwork?artist=Linkin+Park&album=Living+Things```
+```GET /api/v1/artwork/search?artist=Linkin+Park&album=Living+Things```
 
 **Get Artwork by URL**
 
-```GET /api/v1/artwork/by-url?url=https://music.apple.com/us/album/...```
+```GET /api/v1/artwork/url?url=https://music.apple.com/us/album/...```
 
 **Get Global History**
 

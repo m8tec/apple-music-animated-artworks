@@ -142,14 +142,14 @@ form.addEventListener('submit', async (e) => {
             showError("Please enter both Artist and Album.");
             return;
         }
-        apiUrl = `/api/v1/artwork?${new URLSearchParams({ artist, album })}`;
+        apiUrl = `/api/v1/artwork/search?${new URLSearchParams({ artist, album })}`;
     } else {
         const url = document.getElementById('urlInput').value.trim();
         if (!url || !url.includes('music.apple.com')) {
             showError("Please enter a valid Apple Music URL.");
             return;
         }
-        apiUrl = `/api/v1/artwork/by-url?${new URLSearchParams({ url })}`;
+        apiUrl = `/api/v1/artwork/url?${new URLSearchParams({ url })}`;
     }
 
     try {
