@@ -5,5 +5,12 @@
     "Album": "Blurryface",
     "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSMusic112/v4/a9/c1/6c/a9c16cb3-2abe-a26e-d86f-8dd6004fae12/P471842458_default.m3u8",
     "LastFetched": "2026-02-23T10:28:36.392959Z"
+  },
+  {
+    "AppleMusicUrl": "https://music.apple.com/album/859841880",
+    "Artist": "Gorillaz",
+    "Album": "Plastic Beach (Deluxe Version)",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSMusic211/v4/27/9f/42/279f4222-be1b-dffe-de82-2c2a27285bb7/P1107009771_default.m3u8",
+    "LastFetched": "2026-02-23T10:44:29.545098Z"
   }
 ]
