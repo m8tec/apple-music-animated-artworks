@@ -11,10 +11,17 @@ body {
 }
 
 .history-item {
-    transition: background-color 0.2s ease;
+    transition: all 0.2s ease;
 }
 
 .history-item:hover { 
     background: rgba(255, 255, 255, 0.1); 
     cursor: pointer; 
+    transform: translateX(4px);
+}
+
+.tab-inactive {
+    background: transparent !important;
+    color: #9ca3af !important;
+    shadow: none !important;
 }

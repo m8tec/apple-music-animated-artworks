@@ -1,0 +1,16 @@
+[
+  {
+    "AppleMusicUrl": "https://music.apple.com/de/album/from-zero-deluxe-edition/1801842323",
+    "Artist": "LINKIN PARK",
+    "Album": "From Zero (Deluxe Edition)",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/19/2b/51/192b5109-ff8e-d1af-951e-46b1e3e05655/P1032482461_default.m3u8",
+    "LastFetched": "2026-02-23T09:43:05.033533Z"
+  },
+  {
+    "AppleMusicUrl": "https://music.apple.com/us/album/clancy/1733370881",
+    "Artist": "twenty one pilots",
+    "Album": "Clancy",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo112/v4/b0/09/61/b0096144-c3e2-08c7-eabe-f50d75095107/P827944268_default.m3u8",
+    "LastFetched": "2026-02-23T09:37:06.235714Z"
+  }
+]

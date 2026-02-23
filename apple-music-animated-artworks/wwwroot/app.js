@@ -1,4 +1,3 @@
-// --- DOM Elemente ---
 const form = document.getElementById('searchForm');
 const submitBtn = document.getElementById('submitBtn');
 const spinner = document.getElementById('loadingSpinner');
@@ -9,10 +8,33 @@ const rawLink = document.getElementById('rawLink');
 const historyContainer = document.getElementById('historyContainer');
 const historyList = document.getElementById('historyList');
 
-let mainHls; // Globale HLS Instanz für den Haupt-Player
-let historyHlsInstances = []; // Array für das Memory-Management der Historien-Videos
+const tabDetails = document.getElementById('tabDetails');
+const tabUrl = document.getElementById('tabUrl');
+const groupDetails = document.getElementById('groupDetails');
+const groupUrl = document.getElementById('groupUrl');
 
-// --- Video Player Funktion (Hauptplayer) ---
+let currentMode = 'details';
+let mainHls;
+let historyHlsInstances = [];
+
+function setMode(mode) {
+    currentMode = mode;
+    if (mode === 'details') {
+        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-pink-600 text-white shadow-lg";
+        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
+        groupDetails.classList.remove('hidden');
+        groupUrl.classList.add('hidden');
+    } else {
+        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-pink-600 text-white shadow-lg";
+        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
+        groupUrl.classList.remove('hidden');
+        groupDetails.classList.add('hidden');
+    }
+}
+
+tabDetails.onclick = () => setMode('details');
+tabUrl.onclick = () => setMode('url');
+
 function playVideo(url) {
     statusMessage.classList.add('hidden');
     videoContainer.classList.remove('hidden');
@@ -36,7 +58,6 @@ function playVideo(url) {
     }
 }
 
-// --- Historie vom Server laden ---
 async function fetchGlobalHistory() {
     try {
         const response = await fetch('/api/v1/artwork/history');
@@ -46,9 +67,8 @@ async function fetchGlobalHistory() {
         
         if (historyData.length > 0) {
             historyContainer.classList.remove('hidden');
-            historyList.innerHTML = ''; // Liste im DOM leeren
+            historyList.innerHTML = '';
             
-            // WICHTIG: Memory-Leak verhindern! Alle alten HLS Instanzen der Historie killen.
             historyHlsInstances.forEach(hls => hls.destroy());
             historyHlsInstances = []; 
             
@@ -56,7 +76,6 @@ async function fetchGlobalHistory() {
                 const li = document.createElement('li');
                 li.className = 'glass-panel p-2 rounded-lg history-item flex items-center gap-3 transition-colors';
                 
-                // Wir fügen ein kleines Video-Element als Thumbnail ein
                 li.innerHTML = `
                     <div class="w-12 h-12 flex-shrink-0 rounded bg-gray-800 border border-gray-700 overflow-hidden relative shadow-inner">
                         <video id="hist-vid-${index}" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
@@ -69,24 +88,21 @@ async function fetchGlobalHistory() {
                         ${new Date(item.fetchedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </div>
                 `;
-                
-                // Klick auf Eintrag -> direkt im großen Player abspielen
+
                 li.onclick = () => {
                     document.getElementById('artistInput').value = item.artist;
                     document.getElementById('albumInput').value = item.album;
                     playVideo(item.url);
-                    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scrollt sanft nach oben
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                 };
                 
                 historyList.appendChild(li);
 
-                // --- Thumbnail Video Playback Logik ---
                 const thumbnailVideo = document.getElementById(`hist-vid-${index}`);
                 
                 if (Hls.isSupported()) {
-                    // Wir konfigurieren hls.js hier etwas leichtgewichtiger, da es nur Thumbnails sind
                     const thumbHls = new Hls({
-                        capLevelToPlayerSize: true, // Lädt nicht die 4K-Version für ein 48px Bild!
+                        capLevelToPlayerSize: true,
                         autoStartLoad: true
                     });
                     thumbHls.loadSource(item.url);
@@ -94,7 +110,7 @@ async function fetchGlobalHistory() {
                     thumbHls.on(Hls.Events.MANIFEST_PARSED, () => {
                         thumbnailVideo.play().catch(e => console.log("Thumb Autoplay prevented:", e));
                     });
-                    historyHlsInstances.push(thumbHls); // Für späteres Cleanup speichern
+                    historyHlsInstances.push(thumbHls);
                 } else if (thumbnailVideo.canPlayType('application/vnd.apple.mpegurl')) {
                     thumbnailVideo.src = item.url;
                     thumbnailVideo.addEventListener('loadedmetadata', () => {
@@ -108,46 +124,58 @@ async function fetchGlobalHistory() {
     }
 }
 
-// --- Formular absenden ---
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    const artist = document.getElementById('artistInput').value.trim();
-    const album = document.getElementById('albumInput').value.trim();
-
     statusMessage.classList.add('hidden');
     videoContainer.classList.add('hidden');
     rawLink.classList.add('hidden');
     submitBtn.disabled = true;
     spinner.classList.remove('hidden');
 
+    let apiUrl = '';
+    
+    if (currentMode === 'details') {
+        const artist = document.getElementById('artistInput').value.trim();
+        const album = document.getElementById('albumInput').value.trim();
+        if (!artist || !album) {
+            showError("Please enter both Artist and Album.");
+            return;
+        }
+        apiUrl = `/api/v1/artwork?${new URLSearchParams({ artist, album })}`;
+    } else {
+        const url = document.getElementById('urlInput').value.trim();
+        if (!url || !url.includes('music.apple.com')) {
+            showError("Please enter a valid Apple Music URL.");
+            return;
+        }
+        apiUrl = `/api/v1/artwork/by-url?${new URLSearchParams({ url })}`;
+    }
+
     try {
-        const params = new URLSearchParams({ artist, album });
-        const response = await fetch(`/api/v1/artwork?${params.toString()}`);
-        
+        const response = await fetch(apiUrl);
         if (!response.ok) {
-            if (response.status >= 500) {
-                throw new Error('Server Error (500): Etwas ist auf dem Server schiefgelaufen.');
-            } else if (response.status === 404) {
-                throw new Error('No animated artwork found for this album.');
-            } else {
-                throw new Error(`Es ist ein unerwarteter Fehler aufgetreten (Status: ${response.status}).`);
-            }
+            if (response.status === 404) throw new Error('No animated artwork found.');
+            throw new Error('Server error occurred.');
         }
 
         const data = await response.json();
         playVideo(data.url);
         fetchGlobalHistory();
-
     } catch (error) {
-        statusMessage.textContent = error.message;
-        statusMessage.className = "mt-4 text-center text-sm text-red-400";
-        statusMessage.classList.remove('hidden');
+        showError(error.message);
     } finally {
         submitBtn.disabled = false;
         spinner.classList.add('hidden');
     }
 });
 
-// Beim Start aufrufen
+function showError(msg) {
+    statusMessage.textContent = msg;
+    statusMessage.className = "mt-4 text-center text-sm text-red-400";
+    statusMessage.classList.remove('hidden');
+    submitBtn.disabled = false;
+    spinner.classList.add('hidden');
+}
+
 fetchGlobalHistory();

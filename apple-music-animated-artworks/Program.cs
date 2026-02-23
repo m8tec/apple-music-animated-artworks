@@ -1,20 +1,20 @@
 using AnimatedArtworks.Application;
-using AnimatedArtworks.Domain;
 using AnimatedArtworks.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<ICacheService, FileCacheService>();
-builder.Services.AddScoped<ArtworkService>();
+builder.Services.AddSingleton<JsonCacheService>();
+builder.Services.AddSingleton<KeyedLocker>();
+
 builder.Services.AddHttpClient<IAppleMusicClient, AppleMusicClient>(client =>
 {
     client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
     client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
     client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
 });
-builder.Services.AddSingleton<KeyedLocker>();
-builder.Services.AddSingleton<IHistoryService, MemoryHistoryService>();
+
+builder.Services.AddScoped<ArtworkService>();
 
 var app = builder.Build();
 
@@ -25,24 +25,50 @@ app.MapGet("/api/v1/artwork", async (
     [FromQuery] string artist, 
     [FromQuery] string album, 
     [FromServices] ArtworkService service, 
-    [FromServices] IHistoryService history, 
     CancellationToken ct) =>
 {
-    var request = new ArtworkRequest(artist, album);
-    var url = await service.GetM3u8UrlAsync(request, ct);
+    if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
+        return Results.BadRequest("Artist and Album must be provided.");
 
-    if (url != null)
+    var result = await service.GetArtworkByDetailsAsync(artist, album, ct);
+
+    if (result != null && result.M3u8Url != "NONE")
     {
-        history.AddSuccessfulSearch(artist, album, url);
-        return Results.Ok(new { url });
+        return Results.Ok(new { url = result.M3u8Url, artist = result.Artist, album = result.Album });
     }
     
     return Results.NotFound(new { message = "No animated artwork found." });
 });
 
-app.MapGet("/api/v1/artwork/history", ([FromServices] IHistoryService history) =>
+app.MapGet("/api/v1/artwork/by-url", async (
+    [FromQuery] string url, 
+    [FromServices] ArtworkService service, 
+    CancellationToken ct) =>
 {
-    return Results.Ok(history.GetRecentSearches());
+    if (string.IsNullOrWhiteSpace(url) || !url.Contains("music.apple.com"))
+        return Results.BadRequest("A valid Apple Music URL must be provided.");
+
+    var result = await service.GetArtworkByUrlAsync(url, ct);
+
+    if (result != null && result.M3u8Url != "NONE")
+    {
+        return Results.Ok(new { url = result.M3u8Url, artist = result.Artist, album = result.Album });
+    }
+    
+    return Results.NotFound(new { message = "No animated artwork found." });
+});
+
+app.MapGet("/api/v1/artwork/history", ([FromServices] JsonCacheService cache) =>
+{
+    var recent = cache.GetRecentSearches(10).Select(x => new 
+    {
+        artist = x.Artist,
+        album = x.Album,
+        url = x.M3u8Url,
+        fetchedAt = x.LastFetched
+    });
+    
+    return Results.Ok(recent);
 });
 
 app.Run();

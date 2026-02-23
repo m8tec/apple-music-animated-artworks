@@ -1,39 +1,58 @@
 namespace AnimatedArtworks.Application;
 
+using AnimatedArtworks.Domain;
+using AnimatedArtworks.Infrastructure; // Wichtig für den JsonCacheService
+
 public class ArtworkService(
     IAppleMusicClient appleMusicClient,
-    ICacheService cache,
+    JsonCacheService cache,
     KeyedLocker locker)
 {
-    private string GetCacheKey(string artist, string album) => 
-        $"{artist.ToLowerInvariant().Trim()}_{album.ToLowerInvariant().Trim()}"
-            .Replace(" ", "_").Replace("-", "_").Replace("/", "_");
-
-    public async Task<string?> GetM3u8UrlAsync(ArtworkRequest request, CancellationToken ct = default)
+    public async Task<ArtworkCacheEntry> GetArtworkByUrlAsync(string appleMusicUrl, CancellationToken ct = default)
     {
-        var fileKey = GetCacheKey(request.Artist, request.Album);
-        var cacheKey = $"m3u8_{fileKey}";
+        var cachedEntry = cache.GetByUrl(appleMusicUrl);
+        if (cachedEntry != null) return cachedEntry;
 
-        var cachedUrl = await cache.GetAsync<string>(cacheKey, ct);
-        if (cachedUrl != null) return cachedUrl == "NONE" ? null : cachedUrl;
-
-        var semaphore = locker.GetLock(cacheKey);
+        var semaphore = locker.GetLock(appleMusicUrl);
         await semaphore.WaitAsync(ct);
 
         try
         {
-            cachedUrl = await cache.GetAsync<string>(cacheKey, ct);
-            if (cachedUrl != null) return cachedUrl == "NONE" ? null : cachedUrl;
+            cachedEntry = cache.GetByUrl(appleMusicUrl);
+            if (cachedEntry != null) return cachedEntry;
 
-            var url = await appleMusicClient.FetchAnimatedArtworkUrlAsync(request.Artist, request.Album, ct);
-            
-            await cache.SetAsync(cacheKey, url ?? "NONE", Timeout.InfiniteTimeSpan, ct);
+            var (m3u8Url, artist, album) = await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
 
-            return url;
+            var newEntry = new ArtworkCacheEntry(
+                AppleMusicUrl: appleMusicUrl,
+                Artist: artist,
+                Album: album,
+                M3u8Url: m3u8Url ?? "NONE",
+                LastFetched: DateTime.UtcNow
+            );
+
+            await cache.SaveEntryAsync(newEntry);
+
+            return newEntry;
         }
         finally
         {
             semaphore.Release();
         }
+    }
+
+    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album, CancellationToken ct = default)
+    {
+        var cachedEntry = cache.GetByArtistAndAlbum(artist, album);
+        if (cachedEntry != null) return cachedEntry;
+
+        var appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, ct);
+        
+        if (string.IsNullOrEmpty(appleMusicUrl)) 
+        {
+            return null;
+        }
+        
+        return await GetArtworkByUrlAsync(appleMusicUrl, ct);
     }
 }

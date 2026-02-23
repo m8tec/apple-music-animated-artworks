@@ -1,26 +1,17 @@
 
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using AnimatedArtworks.Domain;
 
 namespace AnimatedArtworks.Infrastructure;
 public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
 {
+    [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private partial Regex JsonLdRegex();
+
     [GeneratedRegex(@"<amp-ambient-video[^>]*?src=""([^""]+\.m3u8)""", RegexOptions.IgnoreCase)]
     private partial Regex AmpVideoRegex();
 
-    public async Task<string?> FetchAnimatedArtworkUrlAsync(string artist, string album, CancellationToken ct)
-    {
-        var musicWebUrl = await GetAppleMusicUrlAsync(artist, album, ct);
-        if (string.IsNullOrEmpty(musicWebUrl)) return null;
-
-        var htmlContent = await httpClient.GetStringAsync(musicWebUrl, ct);
-        
-        var match = AmpVideoRegex().Match(htmlContent);
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    private async Task<string?> GetAppleMusicUrlAsync(string artist, string album, CancellationToken ct)
+    public async Task<string?> GetAppleMusicUrlAsync(string artist, string album, CancellationToken ct)
     {
         var query = Uri.EscapeDataString($"{artist} {album}");
         var searchUrl = $"https://itunes.apple.com/search?term={query}&entity=album&limit=5";
@@ -50,5 +41,49 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
         }
 
         return null;
+    }
+
+    public async Task<(string? M3u8Url, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct)
+    {
+        var htmlContent = await httpClient.GetStringAsync(url, ct);
+        
+        var m3u8Match = AmpVideoRegex().Match(htmlContent);
+        var m3u8Url = m3u8Match.Success ? m3u8Match.Groups[1].Value : null;
+
+        string artistName = "Unknown Artist";
+        string albumName = "Unknown Album";
+
+        var jsonMatches = JsonLdRegex().Matches(htmlContent);
+        foreach (Match match in jsonMatches)
+        {
+            if (match.Success)
+            {
+                try
+                {
+                    var jsonString = match.Groups[1].Value;
+                    var json = JsonNode.Parse(jsonString);
+
+                    if (json?["@type"]?.ToString() == "MusicAlbum")
+                    {
+                        var nameNode = json["name"];
+                        if (nameNode != null) albumName = nameNode.ToString();
+
+                        var byArtistArray = json["byArtist"]?.AsArray();
+                        if (byArtistArray != null && byArtistArray.Count > 0)
+                        {
+                            var artistNode = byArtistArray[0]?["name"];
+                            if (artistNode != null) artistName = artistNode.ToString();
+                        }
+                        
+                        break;
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        return (m3u8Url, artistName, albumName);
     }
 }
