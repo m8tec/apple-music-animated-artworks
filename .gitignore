@@ -2,7 +2,8 @@
 
 **/bin/**
 **/obj/**
+**/.idea/**
 
 **/.vscode/**
 
-**/cache_data/**
+**/data/**

@@ -1,3 +1,6 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 public interface IAppleMusicClient
 {
     Task<string?> GetAppleMusicUrlAsync(string artist, string album, CancellationToken ct);

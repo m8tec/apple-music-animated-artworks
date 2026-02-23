@@ -1,6 +1,13 @@
+using System;
+using System.Linq;
+using System.Threading;
 using AnimatedArtworks.Application;
 using AnimatedArtworks.Infrastructure;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration()
@@ -22,7 +29,9 @@ try
 
     builder.Host.UseSerilog();
 
-    builder.Services.AddSingleton<JsonCacheService>();
+    var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
+    builder.Services.AddSingleton(new JsonCacheService(cachePath));
+    
     builder.Services.AddSingleton<KeyedLocker>();
 
     builder.Services.AddHttpClient<IAppleMusicClient, AppleMusicClient>(client =>
@@ -74,7 +83,7 @@ try
         if (string.IsNullOrWhiteSpace(url) || !url.Contains("music.apple.com"))
             return Results.BadRequest("A valid Apple Music URL must be provided.");
 
-        var result = await service.GetArtworkByUrlAsync(url, ct);
+        ArtworkCacheEntry? result = await service.GetArtworkByUrlAsync(url, ct);
 
         if (result != null && result.M3u8Url != "NONE")
         {

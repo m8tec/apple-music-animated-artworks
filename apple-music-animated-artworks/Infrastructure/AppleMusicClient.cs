@@ -1,6 +1,10 @@
 
+using System;
+using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AnimatedArtworks.Infrastructure;
 public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient

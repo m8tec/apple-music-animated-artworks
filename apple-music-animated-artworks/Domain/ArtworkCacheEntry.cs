@@ -1,3 +1,5 @@
+using System;
+
 public record ArtworkCacheEntry(
     string AppleMusicUrl,
     string Artist,

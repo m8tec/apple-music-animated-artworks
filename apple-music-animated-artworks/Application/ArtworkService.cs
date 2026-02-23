@@ -1,7 +1,7 @@
-using System.Text.Json.Nodes;
+using System;
 using System.Text.RegularExpressions;
-
-using AnimatedArtworks.Domain;
+using System.Threading;
+using System.Threading.Tasks;
 using AnimatedArtworks.Infrastructure;
 
 namespace AnimatedArtworks.Application;
@@ -19,25 +19,23 @@ public partial class ArtworkService(
         var match = AlbumIdRegex().Match(url);
         if (match.Success)
         {
-            // Wir extrahieren die ID (entweder aus Gruppe 1 oder 2)
             var id = !string.IsNullOrEmpty(match.Groups[1].Value) 
                      ? match.Groups[1].Value 
                      : match.Groups[2].Value;
             
-            // Einheitliches Format ohne Country-Code und ohne Namen-Slug
             return $"https://music.apple.com/album/{id}";
         }
         return url.ToLowerInvariant().Trim();
     }
 
-    public async Task<ArtworkCacheEntry> GetArtworkByUrlAsync(string appleMusicUrl, CancellationToken ct = default)
+    public async Task<ArtworkCacheEntry?> GetArtworkByUrlAsync(string appleMusicUrl, CancellationToken ct = default)
     {
-        var normalizedUrl = NormalizeUrl(appleMusicUrl);
+        string normalizedUrl = NormalizeUrl(appleMusicUrl);
 
-        var cachedEntry = cache.GetByUrl(normalizedUrl);
+        ArtworkCacheEntry? cachedEntry = cache.GetByUrl(normalizedUrl);
         if (cachedEntry != null) return cachedEntry;
 
-        var semaphore = locker.GetLock(normalizedUrl);
+        SemaphoreSlim semaphore = locker.GetLock(normalizedUrl);
         await semaphore.WaitAsync(ct);
 
         try
@@ -45,9 +43,12 @@ public partial class ArtworkService(
             cachedEntry = cache.GetByUrl(normalizedUrl);
             if (cachedEntry != null) return cachedEntry;
 
-            var (m3u8Url, artist, album) = await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
+            (string? m3u8Url, string artist, string album) =
+                await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
 
-            var newEntry = new ArtworkCacheEntry(
+            if (m3u8Url is null) return null;
+
+            ArtworkCacheEntry newEntry = new(
                 AppleMusicUrl: normalizedUrl,
                 Artist: artist,
                 Album: album,
@@ -65,12 +66,13 @@ public partial class ArtworkService(
         }
     }
 
-    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album, CancellationToken ct = default)
+    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album,
+        CancellationToken ct = default)
     {
-        var cachedEntry = cache.GetByArtistAndAlbum(artist, album);
+        ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
         if (cachedEntry != null) return cachedEntry;
 
-        var appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, ct);
+        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, ct);
         
         if (string.IsNullOrEmpty(appleMusicUrl)) 
         {

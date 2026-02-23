@@ -1,0 +1,14 @@
+﻿services:
+  artwork-finder:
+    container_name: apple-music-artwork-finder
+    build:
+      context: ./apple-music-animated-artworks
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - CACHE_FILE_PATH=/app/data/cache_database.json
+    restart: always

@@ -1,20 +1,28 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace AnimatedArtworks.Infrastructure;
 
 using System.Collections.Concurrent;
 using System.Text.Json;
-using AnimatedArtworks.Domain;
 
 public class JsonCacheService
 {
-    private readonly string _filePath = Path.Combine(Directory.GetCurrentDirectory(), "cache_database.json");
+    private string FilePath { get; set; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
-    public JsonCacheService()
+    public JsonCacheService(string filePath)
     {
-        if (File.Exists(_filePath))
+        FilePath = filePath;
+        
+        if (File.Exists(FilePath))
         {
-            var json = File.ReadAllText(_filePath);
+            var json = File.ReadAllText(FilePath);
             var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
             foreach (var entry in entries)
             {
@@ -45,7 +53,7 @@ public class JsonCacheService
         {
             var options = new JsonSerializerOptions { WriteIndented = true };
             var json = JsonSerializer.Serialize(_cache.Values, options);
-            await File.WriteAllTextAsync(_filePath, json);
+            await File.WriteAllTextAsync(FilePath, json);
         }
         finally
         {
