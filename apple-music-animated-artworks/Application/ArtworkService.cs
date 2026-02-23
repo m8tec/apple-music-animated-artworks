@@ -46,8 +46,6 @@ public partial class ArtworkService(
             (string? m3u8Url, string artist, string album) =
                 await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
 
-            if (m3u8Url is null) return null;
-
             ArtworkCacheEntry newEntry = new(
                 AppleMusicUrl: normalizedUrl,
                 Artist: artist,
