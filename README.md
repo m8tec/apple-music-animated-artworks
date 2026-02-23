@@ -1,5 +1,7 @@
 # Apple Music Animated Artworks
 
+![Build Status](https://github.com/m8tec/apple-music-animated-artworks/actions/workflows/docker-publish.yml/badge.svg)
+
 A lightweight tool to fetch and display Apple Music’s animated album covers (HLS/m3u8). Built with .NET 10 and a minimal Tailwind CSS frontend.
 
 ## What it does
