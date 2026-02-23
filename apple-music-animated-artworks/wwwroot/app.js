@@ -20,12 +20,12 @@ let historyHlsInstances = [];
 function setMode(mode) {
     currentMode = mode;
     if (mode === 'details') {
-        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-pink-600 text-white shadow-lg";
+        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg";
         tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
         groupDetails.classList.remove('hidden');
         groupUrl.classList.add('hidden');
     } else {
-        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-pink-600 text-white shadow-lg";
+        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg";
         tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
         groupUrl.classList.remove('hidden');
         groupDetails.classList.add('hidden');
