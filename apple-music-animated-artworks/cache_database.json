@@ -7,6 +7,27 @@
     "LastFetched": "2026-02-23T10:28:36.392959Z"
   },
   {
+    "AppleMusicUrl": "https://music.apple.com/album/1842897453",
+    "Artist": "Taylor Swift",
+    "Album": "The Life of a Showgirl",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/71/91/34/71913422-3376-ef99-3add-607e273e2138/P1189217832_default.m3u8",
+    "LastFetched": "2026-02-23T23:07:09.077413Z"
+  },
+  {
+    "AppleMusicUrl": "https://music.apple.com/album/1445888258",
+    "Artist": "Taylor Swift",
+    "Album": "1989",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/a9/6b/81/a96b8195-1ce8-8ab5-c27e-86a79bf49635/P1231312740_default.m3u8",
+    "LastFetched": "2026-02-23T22:55:20.048797Z"
+  },
+  {
+    "AppleMusicUrl": "https://music.apple.com/album/1440935467",
+    "Artist": "Taylor Swift",
+    "Album": "1989",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/2d/9e/f5/2d9ef572-fe22-e405-257d-cdc6a42c6fca/P1231312290_default.m3u8",
+    "LastFetched": "2026-02-23T22:54:15.584999Z"
+  },
+  {
     "AppleMusicUrl": "https://music.apple.com/album/1663920333",
     "Artist": "Udo Lindenberg",
     "Album": "Komet - Single",
