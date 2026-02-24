@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -76,7 +77,12 @@ public class JsonCacheService
         await _fileLock.WaitAsync();
         try
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
+            var options = new JsonSerializerOptions 
+            { 
+                WriteIndented = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+            };
+            
             var json = JsonSerializer.Serialize(_cache.Values, options);
             await File.WriteAllTextAsync(FilePath, json);
         }
