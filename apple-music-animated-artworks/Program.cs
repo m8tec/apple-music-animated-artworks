@@ -53,22 +53,24 @@ try
     app.MapGet("/api/v1/artwork/search", async (
         [FromQuery] string artist, 
         [FromQuery] string album, 
+        [FromQuery] string? title,
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
         CancellationToken ct) =>
     {
-        logger.LogInformation("Incoming Request: Metadata Search -> Artist: {Artist}, Album: {Album}", artist, album);
-
+        logger.LogInformation("Incoming Request: Metadata Search -> Artist: {Artist}, Album: {Album}, Title: {Title}", 
+            artist, album, title ?? "N/A");
+        
         if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
             return Results.BadRequest("Artist and Album must be provided.");
-
-        var result = await service.GetArtworkByDetailsAsync(artist, album, ct);
+        
+        var result = await service.GetArtworkByDetailsAsync(artist, album, title, ct);
 
         if (result != null && result.M3u8Url != "NONE")
         {
             return Results.Ok(new { url = result.M3u8Url, artist = result.Artist, album = result.Album });
         }
-    
+
         return Results.NotFound(new { message = "No animated artwork found." });
     });
 

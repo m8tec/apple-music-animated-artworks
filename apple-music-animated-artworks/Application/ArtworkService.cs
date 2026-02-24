@@ -64,13 +64,13 @@ public partial class ArtworkService(
         }
     }
 
-    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album,
+    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album, string? title = null,
         CancellationToken ct = default)
     {
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
         if (cachedEntry != null) return cachedEntry;
 
-        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, ct);
+        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, title, ct);
         
         if (string.IsNullOrEmpty(appleMusicUrl)) 
         {

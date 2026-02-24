@@ -1,5 +1,12 @@
 [
   {
+    "AppleMusicUrl": "https://music.apple.com/album/590431776",
+    "Artist": "LINKIN PARK",
+    "Album": "Hybrid Theory (Deluxe Edition)",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo116/v4/0f/91/83/0f918394-b41d-9f3e-145a-e621e641bcea/P628709109_default.m3u8",
+    "LastFetched": "2026-02-24T00:13:02.001671Z"
+  },
+  {
     "AppleMusicUrl": "https://music.apple.com/album/974485462",
     "Artist": "twenty one pilots",
     "Album": "Blurryface",
@@ -28,11 +35,25 @@
     "LastFetched": "2026-02-23T22:54:15.584999Z"
   },
   {
+    "AppleMusicUrl": "https://music.apple.com/album/1796483977",
+    "Artist": "LINKIN PARK",
+    "Album": "From Zero: A Cappellas \u002B Instrumentals",
+    "M3u8Url": "NONE",
+    "LastFetched": "2026-02-24T00:13:13.76227Z"
+  },
+  {
     "AppleMusicUrl": "https://music.apple.com/album/1663920333",
     "Artist": "Udo Lindenberg",
     "Album": "Komet - Single",
     "M3u8Url": "NONE",
     "LastFetched": "2026-02-23T22:50:21.884726Z"
+  },
+  {
+    "AppleMusicUrl": "https://music.apple.com/album/1801842323",
+    "Artist": "LINKIN PARK",
+    "Album": "From Zero (Deluxe Edition)",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/19/2b/51/192b5109-ff8e-d1af-951e-46b1e3e05655/P1032482461_default.m3u8",
+    "LastFetched": "2026-02-24T00:13:29.628326Z"
   },
   {
     "AppleMusicUrl": "https://music.apple.com/album/859841880",

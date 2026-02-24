@@ -48,6 +48,11 @@
                 <input type="text" id="albumInput" placeholder="e.g. Plastic Beach"
                        class="w-full px-4 py-2 rounded-lg bg-gray-800/80 border border-gray-700 text-white focus:outline-none focus:border-pink-500 transition-colors">
             </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Song <span class="text-gray-500 font-normal text-xs">(Optional, improves accuracy)</span></label>
+                <input type="text" id="titleInput" placeholder="e.g. On Melancholy Hill"
+                       class="w-full px-4 py-2 rounded-lg bg-gray-800/80 border border-gray-700 text-white focus:outline-none focus:border-pink-500 transition-colors">
+            </div>
         </div>
 
         <div id="groupUrl" class="hidden">
@@ -99,8 +104,8 @@
                     <span class="bg-pink-600/20 text-pink-400 px-2 py-1 rounded text-xs font-mono font-bold">GET</span>
                     <code class="text-sm text-gray-200">/api/v1/artwork/search</code>
                 </div>
-                <p class="text-xs text-gray-400 mb-2">Search by artist and album name.</p>
-                <code class="block text-xs text-orange-300 bg-black/50 p-2 rounded overflow-x-auto">?artist=Gorillaz&album=Plastic Beach</code>
+                <p class="text-xs text-gray-400 mb-2">Search by artist, album, and optional track name.</p>
+                <code class="block text-xs text-orange-300 bg-black/50 p-2 rounded overflow-x-auto">?artist=Gorillaz&album=Plastic Beach&title=On Melancholy Hill</code>
             </div>
 
             <div class="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">

@@ -138,11 +138,19 @@ form.addEventListener('submit', async (e) => {
     if (currentMode === 'details') {
         const artist = document.getElementById('artistInput').value.trim();
         const album = document.getElementById('albumInput').value.trim();
+        const title = document.getElementById('titleInput').value.trim();
+        
         if (!artist || !album) {
             showError("Please enter both Artist and Album.");
             return;
         }
-        apiUrl = `/api/v1/artwork/search?${new URLSearchParams({ artist, album })}`;
+
+        const queryParams = { artist, album };
+        if (title) {
+            queryParams.title = title;
+        }
+
+        apiUrl = `/api/v1/artwork/search?${new URLSearchParams(queryParams)}`;
     } else {
         const url = document.getElementById('urlInput').value.trim();
         if (!url || !url.includes('music.apple.com')) {

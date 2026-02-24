@@ -1,5 +1,5 @@
-
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -15,10 +15,16 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
     [GeneratedRegex(@"<amp-ambient-video[^>]*?src=""([^""]+\.m3u8)""", RegexOptions.IgnoreCase)]
     private partial Regex AmpVideoRegex();
 
-    public async Task<string?> GetAppleMusicUrlAsync(string artist, string album, CancellationToken ct)
+    public async Task<string?> GetAppleMusicUrlAsync(string artist, string album, string? title = null, CancellationToken ct = default)
     {
-        string query = Uri.EscapeDataString($"{artist} {album}");
-        string searchUrl = $"https://itunes.apple.com/search?term={query}&entity=album&limit=5&explicit=Yes";
+        List<string> searchParts = [artist, album];
+        if (!string.IsNullOrWhiteSpace(title)) searchParts.Add(title);
+        
+        string query = Uri.EscapeDataString(string.Join(" ", searchParts));
+        
+        string entity = string.IsNullOrWhiteSpace(title) ? "album" : "song";
+        
+        string searchUrl = $"https://itunes.apple.com/search?term={query}&entity={entity}&limit=5&explicit=Yes";
 
         try
         {
