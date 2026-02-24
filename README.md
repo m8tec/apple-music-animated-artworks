@@ -1,8 +1,11 @@
 # Apple Music Animated Artworks
 
+[![Website](https://img.shields.io/badge/Public-instance-blue)](https://artwork.m8tec.top)
 ![Build Status](https://github.com/m8tec/apple-music-animated-artworks/actions/workflows/docker-publish.yml/badge.svg)
 
 A lightweight tool to fetch and display Apple Music’s animated album covers (HLS/m3u8). Built with .NET 10 and a minimal Tailwind CSS frontend.
+
+Test it out: [https://artwork.m8tec.top](https://artwork.m8tec.top)
 
 ## What it does
 - Scraping: Pulls the .m3u8 stream URL directly from Apple Music’s public web player using JSON-LD metadata.
@@ -31,10 +34,9 @@ A lightweight tool to fetch and display Apple Music’s animated album covers (H
 
 ## 💾 Caching Strategy
 This project is designed to be "Apple-friendly" by minimizing outgoing requests:
-1. Request Received: Check RAM dictionary for the Apple Music URL.
-2. Cache Miss: Check cache_database.json on disk.
-3. Fetching: If still not found, fetch from Apple.
-4. Persist: Write results (including "Not Found" flags) to the JSON database immediately.
+1. Request Received: Check RAM dictionary for the Apple Music URL or artist & album name.
+2. Fetching: If not found, fetch from Apple.
+3. Persist: Write results (including "Not Found" flags) to the JSON database.
 
 ## ⚖️ Legal Disclaimer
 This project is for educational purposes only. It uses web scraping techniques to retrieve publicly available metadata. Please respect Apple Music's Terms of Service and use this tool responsibly.
