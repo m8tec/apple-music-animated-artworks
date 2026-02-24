@@ -80,6 +80,16 @@
 
     <div id="statusMessage" class="mt-4 text-center text-sm hidden"></div>
 
+    <div id="artworkMetadata" class="mt-6 mb-2 hidden flex items-center justify-between bg-gray-900/60 p-3 rounded-lg border border-gray-700/50 shadow-inner">
+        <div class="truncate pr-2">
+            <p id="metaAlbum" class="font-bold text-white text-sm truncate"></p>
+            <p id="metaArtist" class="text-xs text-gray-400 truncate"></p>
+        </div>
+        <div id="cacheBadge" class="hidden shrink-0 items-center gap-1 bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded text-xs font-semibold border border-yellow-500/20" title="Loaded instantly from server cache">
+            ⚡ <span class="hidden sm:inline">Cached</span>
+        </div>
+    </div>
+    
     <div id="videoContainer" class="mt-6 hidden rounded-lg overflow-hidden shadow-2xl border border-gray-700 relative aspect-square bg-black">
         <video id="artworkVideo" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
     </div>

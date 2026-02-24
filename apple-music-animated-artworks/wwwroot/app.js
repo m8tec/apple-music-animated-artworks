@@ -168,7 +168,22 @@ form.addEventListener('submit', async (e) => {
         }
 
         const data = await response.json();
+        
         playVideo(data.url);
+
+        document.getElementById('artworkMetadata').classList.remove('hidden');
+        document.getElementById('metaAlbum').textContent = data.album;
+        document.getElementById('metaArtist').textContent = data.artist;
+        
+        const cacheBadge = document.getElementById('cacheBadge');
+        if (data.isCached) {
+            cacheBadge.classList.remove('hidden');
+            cacheBadge.classList.add('flex');
+        } else {
+            cacheBadge.classList.add('hidden');
+            cacheBadge.classList.remove('flex');
+        }
+        
         fetchGlobalHistory();
     } catch (error) {
         showError(error.message);

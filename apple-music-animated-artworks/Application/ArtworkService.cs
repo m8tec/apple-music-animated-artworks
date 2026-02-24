@@ -28,12 +28,13 @@ public partial class ArtworkService(
         return url.ToLowerInvariant().Trim();
     }
 
-    public async Task<ArtworkCacheEntry?> GetArtworkByUrlAsync(string appleMusicUrl, CancellationToken ct = default)
+    public async Task<(ArtworkCacheEntry? Entry, bool IsCached)> GetArtworkByUrlAsync(string appleMusicUrl,
+        CancellationToken ct = default)
     {
         string normalizedUrl = NormalizeUrl(appleMusicUrl);
 
         ArtworkCacheEntry? cachedEntry = cache.GetByUrl(normalizedUrl);
-        if (cachedEntry != null) return cachedEntry;
+        if (cachedEntry != null) return (cachedEntry, true);
 
         SemaphoreSlim semaphore = locker.GetLock(normalizedUrl);
         await semaphore.WaitAsync(ct);
@@ -41,7 +42,7 @@ public partial class ArtworkService(
         try
         {
             cachedEntry = cache.GetByUrl(normalizedUrl);
-            if (cachedEntry != null) return cachedEntry;
+            if (cachedEntry != null) return (cachedEntry, true);
 
             (string? m3u8Url, string artist, string album) =
                 await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
@@ -56,7 +57,7 @@ public partial class ArtworkService(
 
             await cache.SaveEntryAsync(newEntry);
 
-            return newEntry;
+            return (newEntry, false);
         }
         finally
         {
@@ -64,17 +65,17 @@ public partial class ArtworkService(
         }
     }
 
-    public async Task<ArtworkCacheEntry?> GetArtworkByDetailsAsync(string artist, string album, string? title = null,
+    public async Task<(ArtworkCacheEntry? Entry, bool IsCached)> GetArtworkByDetailsAsync(string artist, string album, string? title = null,
         CancellationToken ct = default)
     {
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
-        if (cachedEntry != null) return cachedEntry;
+        if (cachedEntry != null) return (cachedEntry, true);
 
         string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
         
         if (string.IsNullOrEmpty(appleMusicUrl)) 
         {
-            return null;
+            return (null, false);
         }
         
         return await GetArtworkByUrlAsync(appleMusicUrl, ct);

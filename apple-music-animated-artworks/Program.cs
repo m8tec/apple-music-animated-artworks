@@ -81,11 +81,11 @@ try
         if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
             return Results.BadRequest("Artist and Album must be provided.");
         
-        var result = await service.GetArtworkByDetailsAsync(artist, album, title, ct);
+        (ArtworkCacheEntry? entry, bool isCached) = await service.GetArtworkByDetailsAsync(artist, album, title, ct);
 
-        if (result != null && result.M3u8Url != "NONE")
+        if (entry != null && entry.M3u8Url != "NONE")
         {
-            return Results.Ok(new { url = result.M3u8Url, artist = result.Artist, album = result.Album });
+            return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
         }
 
         return Results.NotFound(new { message = "No animated artwork found." });
@@ -102,11 +102,11 @@ try
         if (string.IsNullOrWhiteSpace(url) || !url.Contains("music.apple.com"))
             return Results.BadRequest("A valid Apple Music URL must be provided.");
 
-        ArtworkCacheEntry? result = await service.GetArtworkByUrlAsync(url, ct);
+        var (entry, isCached) = await service.GetArtworkByUrlAsync(url, ct);
 
-        if (result != null && result.M3u8Url != "NONE")
+        if (entry != null && entry.M3u8Url != "NONE")
         {
-            return Results.Ok(new { url = result.M3u8Url, artist = result.Artist, album = result.Album });
+            return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
         }
     
         return Results.NotFound(new { message = "No animated artwork found." });
