@@ -21,6 +21,7 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="/ffmpeg/ffmpeg.js"></script>
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
 </head>
@@ -81,14 +82,21 @@
 
     <div id="statusMessage" class="mt-4 text-center text-sm hidden"></div>
 
-    <div id="artworkMetadata" class="mt-6 mb-2 hidden flex items-center justify-between bg-gray-900/60 p-3 rounded-lg border border-gray-700/50 shadow-inner">
-        <div class="truncate pr-2">
-            <p id="metaAlbum" class="font-bold text-white text-sm truncate"></p>
-            <p id="metaArtist" class="text-xs text-gray-400 truncate"></p>
+    <div id="artworkMetadata" class="mt-6 mb-2 hidden flex flex-col gap-3 bg-gray-900/60 p-3 rounded-lg border border-gray-700/50 shadow-inner">
+        <div class="flex items-center justify-between">
+            <div class="truncate pr-2">
+                <p id="metaAlbum" class="font-bold text-white text-sm truncate"></p>
+                <p id="metaArtist" class="text-xs text-gray-400 truncate"></p>
+            </div>
+            <div id="cacheBadge" class="hidden shrink-0 items-center gap-1 bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded text-xs font-semibold border border-yellow-500/20" title="Loaded instantly from server cache">
+                ⚡ <span class="hidden sm:inline">Cached</span>
+            </div>
         </div>
-        <div id="cacheBadge" class="hidden shrink-0 items-center gap-1 bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded text-xs font-semibold border border-yellow-500/20" title="Loaded instantly from server cache">
-            ⚡ <span class="hidden sm:inline">Cached</span>
-        </div>
+
+        <button id="downloadMp4Btn" class="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-md text-sm text-white font-medium transition-colors flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span id="downloadBtnText">Download as MP4</span>
+        </button>
     </div>
     
     <div id="videoContainer" class="mt-6 hidden rounded-lg overflow-hidden shadow-2xl border border-gray-700 relative aspect-square bg-black">

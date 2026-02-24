@@ -17,6 +17,11 @@ let currentMode = 'details';
 let mainHls;
 let historyHlsInstances = [];
 
+const { FFmpeg } = window.FFmpegWASM;
+let ffmpeg = null;
+let currentM3u8Url = null;
+let currentAlbumName = null;
+
 function setMode(mode) {
     currentMode = mode;
     if (mode === 'details') {
@@ -168,6 +173,9 @@ form.addEventListener('submit', async (e) => {
         }
 
         const data = await response.json();
+
+        currentM3u8Url = data.url;
+        currentAlbumName = data.album;
         
         playVideo(data.url);
 
@@ -234,6 +242,104 @@ function showError(msg) {
     submitBtn.disabled = false;
     spinner.classList.add('hidden');
 }
+
+document.getElementById('downloadMp4Btn').addEventListener('click', async () => {
+    if (!currentM3u8Url) return;
+
+    const btnText = document.getElementById('downloadBtnText');
+    const btn = document.getElementById('downloadMp4Btn');
+
+    try {
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+        
+        if (!ffmpeg) {
+            btnText.textContent = "Loading Engine...";
+            ffmpeg = new FFmpeg();
+
+            ffmpeg.on('progress', ({ progress }) => {
+                btnText.textContent = `Converting... ${Math.round(progress * 100)}%`;
+            });
+
+            const baseUrl = window.location.origin + '/ffmpeg';
+
+            await ffmpeg.load({
+                coreURL: `${baseUrl}/ffmpeg-core.js`,
+                wasmURL: `${baseUrl}/ffmpeg-core.wasm`
+            });
+        }
+        
+        btnText.textContent = "Parsing playlist...";
+        let res = await fetch(currentM3u8Url);
+        let text = await res.text();
+
+        let targetM3u8Url = currentM3u8Url;
+        
+        if (text.includes('#EXT-X-STREAM-INF')) {
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+                    let nextLine = lines[i + 1];
+                    if (nextLine && !nextLine.startsWith('#')) {
+                        targetM3u8Url = new URL(nextLine, currentM3u8Url).href;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        btnText.textContent = "Fetching segments...";
+        res = await fetch(targetM3u8Url);
+        text = await res.text();
+        
+        const allSegments = text.split('\n')
+            .map(l => l.trim())
+            .filter(line => line.length > 0 && !line.startsWith('#'))
+            .map(line => new URL(line, targetM3u8Url).href);
+        
+        const segments = [...new Set(allSegments)];
+        
+        let listFileContent = "";
+        for (let i = 0; i < segments.length; i++) {
+            btnText.textContent = `Downloading chunk ${i+1}/${segments.length}...`;
+            const segRes = await fetch(segments[i]);
+            const segBuffer = await segRes.arrayBuffer();
+            const fileName = `seg${i}.ts`;
+            await ffmpeg.writeFile(fileName, new Uint8Array(segBuffer));
+            listFileContent += `file '${fileName}'\n`;
+        }
+        
+        await ffmpeg.writeFile('list.txt', listFileContent);
+        
+        btnText.textContent = "Merging Video...";
+        await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4']);
+        
+        const data = await ffmpeg.readFile('output.mp4');
+        const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+        const downloadUrl = URL.createObjectURL(videoBlob);
+
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        const safeName = currentAlbumName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        a.download = `${safeName}_artwork.mp4`;
+        a.click();
+        
+        URL.revokeObjectURL(downloadUrl);
+        await ffmpeg.deleteFile('output.mp4');
+        await ffmpeg.deleteFile('list.txt');
+
+        btnText.textContent = "Download Successful!";
+        setTimeout(() => { btnText.textContent = "Download as MP4"; }, 3000);
+
+    } catch (e) {
+        console.error("FFmpeg Error:", e);
+        btnText.textContent = "Error - Try again";
+        setTimeout(() => { btnText.textContent = "Download as MP4"; }, 3000);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+});
 
 fetchGlobalHistory();
 

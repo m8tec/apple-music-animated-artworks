@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Folder Include="assets\" />
+    <Folder Include="wwwroot\ffmpeg\" />
   </ItemGroup>
 
 </Project>
