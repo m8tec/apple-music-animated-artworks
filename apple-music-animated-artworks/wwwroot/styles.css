@@ -23,6 +23,29 @@ body {
     z-index: 10;
 }
 
+.history-fade-wrapper {
+    position: relative;
+    padding-bottom: 2rem;
+}
+
+.history-fade-wrapper::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: -10%;
+    right: -10%;
+    height: 140px;
+    background: linear-gradient(
+            to bottom,
+            transparent 0%,
+            rgba(18, 18, 18, 0.8) 50%,
+            rgba(18, 18, 18, 1) 90%,
+            #121212 100%
+    );
+    pointer-events: none;
+    z-index: 20;
+}
+
 .tab-inactive {
     background: transparent !important;
     color: #9ca3af !important;

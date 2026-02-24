@@ -146,8 +146,15 @@ async function fetchGlobalHistory() {
         const historyData = await response.json();
         if (historyData.length === 0) return;
 
+        const fadeWrapper = document.getElementById('historyFadeWrapper');
         ui.historyContainer.classList.remove('hidden');
         ui.historyList.innerHTML = '';
+
+        if (historyData.length >= 12) {
+            fadeWrapper.classList.add('history-fade-wrapper');
+        } else {
+            fadeWrapper.classList.remove('history-fade-wrapper');
+        }
         
         state.historyHlsInstances.forEach(hls => { if (hls) hls.destroy(); });
         state.historyHlsInstances = new Array(historyData.length).fill(null);
