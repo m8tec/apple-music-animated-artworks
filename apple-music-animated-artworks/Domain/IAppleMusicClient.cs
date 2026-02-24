@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 public interface IAppleMusicClient
 {
-    Task<string?> GetAppleMusicUrlAsync(string artist, string album, string? title = null,
+    Task<string?> GetAppleMusicUrlViaItunesAsync(string artist, string album, string? title = null,
         CancellationToken ct = default);
 
     Task<string?> GetAppleMusicUrlViaWebSearchAsync(string artist, string album, string? title = null,

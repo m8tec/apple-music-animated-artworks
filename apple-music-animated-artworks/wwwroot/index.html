@@ -29,7 +29,17 @@
     <h1 class="text-3xl font-bold mb-2 text-center text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-orange-400">
         Artwork Finder
     </h1>
-    <p class="text-gray-400 text-sm mb-6 text-center">Search for Apple Music Animated Artworks</p>
+    <p class="text-gray-400 text-sm mb-4 text-center">Search for Apple Music Animated Artworks</p>
+
+    <div class="flex justify-center mb-6">
+        <div id="systemStatus" class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 transition-colors">
+            <span class="relative flex h-2 w-2">
+              <span id="statusPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span id="statusDot" class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span id="statusText">System Operational</span>
+        </div>
+    </div>
 
     <div class="flex p-1 mb-6 bg-gray-900/50 rounded-xl border border-gray-700/50">
         <button id="tabDetails" class="flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg">Search</button>

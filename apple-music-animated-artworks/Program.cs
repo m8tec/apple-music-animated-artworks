@@ -32,6 +32,8 @@ try
     var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
     builder.Services.AddSingleton(new JsonCacheService(cachePath));
     
+    builder.Services.AddSingleton<SystemStatusService>();
+    
     builder.Services.AddSingleton<KeyedLocker>();
 
     builder.Services.AddHttpClient<IAppleMusicClient, AppleMusicClient>(client =>
@@ -49,6 +51,21 @@ try
 
     app.UseDefaultFiles();
     app.UseStaticFiles();
+    
+    app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService) =>
+    {
+        if (statusService.IsRateLimited && (DateTime.UtcNow - statusService.LastErrorTime).TotalMinutes > 15)
+        {
+            statusService.IsRateLimited = false;
+        }
+
+        if (statusService.IsRateLimited)
+        {
+            return Results.Ok(new { status = "degraded", message = "Apple Music Rate Limit. May be unstable." });
+        }
+        
+        return Results.Ok(new { status = "operational", message = "System Operational" });
+    });
 
     app.MapGet("/api/v1/artwork/search", async (
         [FromQuery] string artist, 

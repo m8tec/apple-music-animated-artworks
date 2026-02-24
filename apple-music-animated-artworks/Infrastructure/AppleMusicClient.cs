@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -8,7 +9,7 @@ using System.Threading.Tasks;
 using Serilog;
 
 namespace AnimatedArtworks.Infrastructure;
-public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
+public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService statusService) : IAppleMusicClient
 {
     [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private partial Regex JsonLdRegex();
@@ -39,7 +40,17 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
 
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+            
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+            {
+                Log.Warning("Rate Limit hit on Apple Music: {StatusCode}", response.StatusCode);
+                statusService.ReportRateLimit();
+                return null;
+            }
+            
             response.EnsureSuccessStatusCode();
+            
+            statusService.ReportSuccess();
 
             string htmlContent = await response.Content.ReadAsStringAsync(ct);
             
@@ -48,21 +59,21 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
             if (match.Success)
             {
                 string foundUrl = match.Groups[1].Value;
-                Log.Logger.Debug("Found album: {Url} for query: {Query}", foundUrl, query);
+                Log.Debug("Found album: {Url} for query: {Query}", foundUrl, query);
                 return foundUrl;
             }
             
-            Log.Logger.Debug("Found no album links in HTML for query: {Query}", query);
+            Log.Debug("Found no album links in HTML for query: {Query}", query);
         }
         catch (Exception ex)
         {
-            Log.Logger.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
+            Log.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
         }
 
         return null;
     }
 
-    public async Task<string?> GetAppleMusicUrlAsync(string artist, string album, string? title = null, CancellationToken ct = default)
+    public async Task<string?> GetAppleMusicUrlViaItunesAsync(string artist, string album, string? title = null, CancellationToken ct = default)
     {
         List<string> searchParts = [artist, album];
         if (!string.IsNullOrWhiteSpace(title)) searchParts.Add(title);
@@ -76,7 +87,17 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
         try
         {
             HttpResponseMessage response = await httpClient.GetAsync(searchUrl, ct);
+            
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+            {
+                Log.Warning("Rate Limit hit on iTunes API: {StatusCode}", response.StatusCode);
+                statusService.ReportRateLimit();
+                return null;
+            }
+            
             response.EnsureSuccessStatusCode();
+            
+            statusService.ReportSuccess();
 
             string jsonString = await response.Content.ReadAsStringAsync(ct);
             JsonNode? json = JsonNode.Parse(jsonString);
@@ -95,7 +116,7 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
         }
         catch (HttpRequestException ex)
         {
-            Log.Logger.Error("iTunes API request failed: {Message}", ex.Message);
+            Log.Error("iTunes API request failed: {Message}", ex.Message);
         }
 
         return null;
@@ -103,45 +124,66 @@ public partial class AppleMusicClient(HttpClient httpClient) : IAppleMusicClient
 
     public async Task<(string? M3u8Url, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct)
     {
-        string htmlContent = await httpClient.GetStringAsync(url, ct);
-        
-        Match m3u8Match = AmpVideoRegex().Match(htmlContent);
-        string? m3u8Url = m3u8Match.Success ? m3u8Match.Groups[1].Value : null;
-
-        string artistName = "Unknown Artist";
-        string albumName = "Unknown Album";
-
-        MatchCollection jsonMatches = JsonLdRegex().Matches(htmlContent);
-        foreach (Match match in jsonMatches)
+        try 
         {
-            if (match.Success)
+            HttpResponseMessage response = await httpClient.GetAsync(url, ct);
+            
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                try
+                Log.Warning("Rate Limit hit while parsing album page: {StatusCode}", response.StatusCode);
+                statusService.ReportRateLimit();
+                return (null, "Unknown Artist", "Unknown Album");
+            }
+
+            response.EnsureSuccessStatusCode();
+            statusService.ReportSuccess();
+
+            string htmlContent = await response.Content.ReadAsStringAsync(ct);
+            
+            Match m3u8Match = AmpVideoRegex().Match(htmlContent);
+            string? m3u8Url = m3u8Match.Success ? m3u8Match.Groups[1].Value : null;
+
+            string artistName = "Unknown Artist";
+            string albumName = "Unknown Album";
+
+            MatchCollection jsonMatches = JsonLdRegex().Matches(htmlContent);
+            foreach (Match match in jsonMatches)
+            {
+                if (match.Success)
                 {
-                    string jsonString = match.Groups[1].Value;
-                    JsonNode? json = JsonNode.Parse(jsonString);
-
-                    if (json?["@type"]?.ToString() == "MusicAlbum")
+                    try
                     {
-                        JsonNode? nameNode = json["name"];
-                        if (nameNode != null) albumName = nameNode.ToString();
+                        string jsonString = match.Groups[1].Value;
+                        JsonNode? json = JsonNode.Parse(jsonString);
 
-                        JsonArray? byArtistArray = json["byArtist"]?.AsArray();
-                        if (byArtistArray is { Count: > 0 })
+                        if (json?["@type"]?.ToString() == "MusicAlbum")
                         {
-                            JsonNode? artistNode = byArtistArray[0]?["name"];
-                            if (artistNode != null) artistName = artistNode.ToString();
+                            JsonNode? nameNode = json["name"];
+                            if (nameNode != null) albumName = nameNode.ToString();
+
+                            JsonArray? byArtistArray = json["byArtist"]?.AsArray();
+                            if (byArtistArray is { Count: > 0 })
+                            {
+                                JsonNode? artistNode = byArtistArray[0]?["name"];
+                                if (artistNode != null) artistName = artistNode.ToString();
+                            }
+                            
+                            break;
                         }
-                        
-                        break;
+                    }
+                    catch
+                    {
+                        Log.Error("Failed to parse JSON-LD for album info.");
                     }
                 }
-                catch
-                {
-                }
             }
-        }
 
-        return (m3u8Url, artistName, albumName);
+            return (m3u8Url, artistName, albumName);
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error("Network error in ParseAppleMusicPageAsync: {Message}", ex.Message);
+            return (null, "Unknown Artist", "Unknown Album");
+        }
     }
 }
