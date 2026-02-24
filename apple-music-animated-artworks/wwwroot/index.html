@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Apple Music Animated Artwork Finder | Download HLS/m3u8</title>
-    <meta name="title" content="Apple Music Animated Artwork Finder | Download HLS/m3u8">
-    <meta name="description" content="Extract and view high-quality animated album artworks from Apple Music. Free tool to find hidden HLS (.m3u8) video streams by artist, album, or URL.">
-    <meta name="keywords" content="apple music, animated artwork, album cover, m3u8, hls stream, video artwork, apple music api, extract artwork">
+    <title>Apple Music Animated Artwork Downloader</title>
+    <meta name="title" content="Apple Music Animated Artwork Downloader">
+    <meta name="description" content="Extract and download high-quality animated album artworks from Apple Music. Convert HLS (.m3u8) video streams to MP4.">
+    <meta name="keywords" content="apple music, animated artwork, download album cover, m3u8 to mp4, hls stream, video artwork downloader, apple music api, extract artwork mp4">
     <meta name="author" content="m8tec">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://artwork.m8tec.top/">
@@ -15,8 +15,8 @@
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://artwork.m8tec.top/">
-    <meta property="og:title" content="Apple Music Animated Artwork Finder">
-    <meta property="og:description" content="Extract and view animated album artworks from Apple Music.">
+    <meta property="og:title" content="Apple Music Animated Artwork Downloader">
+    <meta property="og:description" content="Extract and download animated album artworks as MP4 files from Apple Music.">
     <meta property="og:image" content="https://artwork.m8tec.top/og-image.jpg">
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -29,9 +29,9 @@
 
 <div class="glass-panel p-8 rounded-2xl shadow-2xl w-full max-w-md z-10 mt-10">
     <h1 class="text-3xl font-bold mb-2 text-center text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-orange-400">
-        Artwork Finder
+        Artwork Downloader
     </h1>
-    <p class="text-gray-400 text-sm mb-4 text-center">Search for Apple Music Animated Artworks</p>
+    <p class="text-gray-400 text-sm mb-4 text-center">Find & Download Apple Music Animated Artworks</p>
 
     <div class="flex justify-center mb-6">
         <div id="systemStatus" class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 transition-colors">
@@ -119,11 +119,15 @@
     <div class="glass-panel p-6 rounded-2xl">
         <h2 class="text-xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-orange-400">How It Works ⚙️</h2>
         <p class="text-gray-300 text-sm leading-relaxed mb-4">
-            Apple Music uses <strong>HLS (HTTP Live Streaming)</strong> to deliver their animated album artworks. Instead of serving a static MP4 file, they provide an <code>.m3u8</code> playlist. This format chunks the video into tiny segments, allowing it to load instantly, loop without stuttering, and adapt to your network speed.
+            Apple Music uses <strong>HLS (HTTP Live Streaming)</strong> to deliver their animated album artworks. Instead of serving a standard video file, they provide an <code>.m3u8</code> playlist that chunks the video into tiny streaming segments.
+        </p>
+
+        <p class="text-gray-300 text-sm leading-relaxed mb-4">
+            Our backend extracts these hidden playlists directly from Apple's metadata. Then, the magic happens in your browser: We use a WebAssembly port of <strong>FFmpeg</strong> to fetch the raw segments, filter out repeating loops, and seamlessly merge them into a single, high-quality <strong>MP4 file</strong> for you to download.
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed">
-            The backend scrapes the required Apple Music page, extracts the hidden HLS playlist URL from the metadata, and returns it to this frontend. Here, we use <code>hls.js</code> to decode and render the stream natively in your browser.
+            All video conversion happens locally on your device, ensuring lightning-fast downloads.
         </p>
     </div>
 
