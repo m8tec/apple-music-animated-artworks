@@ -135,16 +135,49 @@ async function fetchGlobalHistory() {
 
         ui.historyContainer.classList.remove('hidden');
         ui.historyList.innerHTML = '';
+        
+        state.historyHlsInstances.forEach(hls => { if (hls) hls.destroy(); });
+        state.historyHlsInstances = new Array(historyData.length).fill(null);
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const video = entry.target;
+                const index = video.getAttribute('data-index');
+                const url = video.getAttribute('data-url');
 
-        state.historyHlsInstances.forEach(hls => hls.destroy());
-        state.historyHlsInstances = [];
+                if (entry.isIntersecting) {
+                    if (!state.historyHlsInstances[index]) {
+                        if (Hls.isSupported()) {
+                            const thumbHls = new Hls({ capLevelToPlayerSize: true, autoStartLoad: true });
+                            thumbHls.loadSource(url);
+                            thumbHls.attachMedia(video);
+                            thumbHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                                video.play().catch(() => {});
+                            });
+                            state.historyHlsInstances[index] = thumbHls;
+                        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                            video.src = url;
+                            video.addEventListener('loadedmetadata', () => {
+                                video.play().catch(() => {});
+                            });
+                        }
+                    } else {
+                        video.play().catch(() => {});
+                    }
+                } else {
+                    video.pause();
+                }
+            });
+        }, {
+            rootMargin: '50px'
+        });
 
         historyData.forEach((item, index) => {
             const li = document.createElement('li');
             li.className = 'glass-panel p-2 rounded-lg history-item flex items-center gap-3 transition-colors cursor-pointer hover:bg-white/5';
             li.innerHTML = `
                 <div class="w-12 h-12 flex-shrink-0 rounded bg-gray-800 border border-gray-700 overflow-hidden relative shadow-inner">
-                    <video id="hist-vid-${index}" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
+                    <video id="hist-vid-${index}" data-index="${index}" data-url="${item.url}" class="w-full h-full object-cover" loop muted playsinline></video>
                 </div>
                 <div class="truncate flex-grow">
                     <p class="font-bold text-sm text-gray-200 truncate">${item.album}</p>
@@ -158,7 +191,7 @@ async function fetchGlobalHistory() {
             li.onclick = () => {
                 document.getElementById('artistInput').value = item.artist;
                 document.getElementById('albumInput').value = item.album;
-                
+
                 state.currentM3u8Url = item.url;
                 state.currentAlbumName = item.album;
 
@@ -175,20 +208,7 @@ async function fetchGlobalHistory() {
             ui.historyList.appendChild(li);
             
             const thumbnailVideo = document.getElementById(`hist-vid-${index}`);
-            if (Hls.isSupported()) {
-                const thumbHls = new Hls({ capLevelToPlayerSize: true, autoStartLoad: true });
-                thumbHls.loadSource(item.url);
-                thumbHls.attachMedia(thumbnailVideo);
-                thumbHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    thumbnailVideo.play().catch(() => {});
-                });
-                state.historyHlsInstances.push(thumbHls);
-            } else if (thumbnailVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                thumbnailVideo.src = item.url;
-                thumbnailVideo.addEventListener('loadedmetadata', () => {
-                    thumbnailVideo.play().catch(() => {});
-                });
-            }
+            observer.observe(thumbnailVideo);
         });
     } catch (error) {
         console.error("Failed to fetch history:", error);
