@@ -1,14 +1,12 @@
-using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace AnimatedArtworks.Infrastructure;
-
-using System.Collections.Concurrent;
-using System.Text.Json;
 
 public class JsonCacheService
 {
@@ -30,6 +28,13 @@ public class JsonCacheService
             }
         }
     }
+    
+    private static string NormalizeForCache(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        
+        return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+    }
 
     public ArtworkCacheEntry? GetByUrl(string appleMusicUrl)
     {
@@ -39,9 +44,29 @@ public class JsonCacheService
 
     public ArtworkCacheEntry? GetByArtistAndAlbum(string artist, string album)
     {
-        return _cache.Values.FirstOrDefault(x => 
-            x.Artist.Equals(artist, StringComparison.OrdinalIgnoreCase) && 
-            x.Album.Equals(album, StringComparison.OrdinalIgnoreCase));
+        string queryArtist = NormalizeForCache(artist);
+        string queryAlbum = NormalizeForCache(album);
+
+        if (string.IsNullOrEmpty(queryArtist) || string.IsNullOrEmpty(queryAlbum)) 
+            return null;
+
+        return _cache.Values
+            .Where(x => 
+            {
+                string cachedArtist = NormalizeForCache(x.Artist);
+                string cachedAlbum = NormalizeForCache(x.Album);
+
+                bool artistMatch = cachedArtist.Contains(queryArtist) || queryArtist.Contains(cachedArtist);
+                bool albumMatch = cachedAlbum.Contains(queryAlbum) || queryAlbum.Contains(cachedAlbum);
+
+                return artistMatch && albumMatch;
+            })
+            // prefer existing m3u8-urls
+            .OrderByDescending(x => x.M3u8Url != null && x.M3u8Url != "NONE")
+            // prefer shorter album names, as they are more likely to be the original release instead of
+            // a special edition (e.g. "A Cappella Super Deluxe Version")
+            .ThenBy(x => x.Album.Length)
+            .FirstOrDefault();
     }
 
     public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
