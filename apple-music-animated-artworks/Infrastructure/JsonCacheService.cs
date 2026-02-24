@@ -36,6 +36,8 @@ public class JsonCacheService
         
         return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     }
+    
+    public IEnumerable<ArtworkCacheEntry> GetAll() => _cache.Values;
 
     public ArtworkCacheEntry? GetByUrl(string appleMusicUrl)
     {
@@ -69,7 +71,61 @@ public class JsonCacheService
             .ThenBy(x => x.Album.Length)
             .FirstOrDefault();
     }
-
+    
+    public async Task IncrementDownloadCountAsync(string m3u8Url)
+    {
+        await _fileLock.WaitAsync();
+        try
+        {
+            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3u8Url);
+            
+            if (target.Key != null)
+            {
+                var entry = target.Value;
+                
+                var updatedEntry = entry with { DownloadCount = entry.DownloadCount + 1 };
+                _cache[target.Key] = updatedEntry;
+                
+                var options = new JsonSerializerOptions 
+                { 
+                    WriteIndented = true, 
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                };
+                var json = JsonSerializer.Serialize(_cache.Values, options);
+                await File.WriteAllTextAsync(FilePath, json);
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+    
+    public async Task IncrementSearchCountAsync(string appleMusicUrl)
+    {
+        await _fileLock.WaitAsync();
+        try
+        {
+            if (_cache.TryGetValue(appleMusicUrl, out var entry))
+            {
+                var updatedEntry = entry with { SearchCount = entry.SearchCount + 1 };
+                _cache[appleMusicUrl] = updatedEntry;
+                
+                var options = new JsonSerializerOptions 
+                { 
+                    WriteIndented = true, 
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                };
+                var json = JsonSerializer.Serialize(_cache.Values, options);
+                await File.WriteAllTextAsync(FilePath, json);
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+    
     public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
         _cache[newEntry.AppleMusicUrl] = newEntry;
@@ -92,7 +148,7 @@ public class JsonCacheService
         }
     }
 
-    public IEnumerable<ArtworkCacheEntry> GetRecentSearches(int limit = 10)
+    public IEnumerable<ArtworkCacheEntry> GetRecentSearches(int limit = 12)
     {
         return _cache.Values
             .Where(x => x.M3u8Url != null && x.M3u8Url != "NONE")

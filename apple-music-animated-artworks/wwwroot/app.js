@@ -102,6 +102,10 @@ async function fetchSystemStatus() {
     const statusPing = document.getElementById('statusPing');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
+    
+    const statsContainer = document.getElementById('statsContainer');
+    const statSearches = document.getElementById('statSearches');
+    const statDownloads = document.getElementById('statDownloads');
 
     try {
         const res = await fetch('/api/v1/status');
@@ -112,6 +116,13 @@ async function fetchSystemStatus() {
             statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 transition-colors";
             statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75";
             statusDot.className = "relative inline-flex rounded-full h-2 w-2 bg-green-500";
+            
+            if (data.totalSearches !== undefined && data.totalDownloads !== undefined) {
+                statSearches.textContent = data.totalSearches.toLocaleString();
+                statDownloads.textContent = data.totalDownloads.toLocaleString();
+                statsContainer.classList.remove('hidden');
+                statsContainer.classList.add('flex');
+            }
         } else {
             statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-400 text-xs font-medium border border-yellow-500/20 transition-colors";
             statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75";
@@ -122,6 +133,8 @@ async function fetchSystemStatus() {
         statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 transition-colors";
         statusPing.classList.add('hidden');
         statusDot.className = "relative inline-flex rounded-full h-2 w-2 bg-red-500";
+        statsContainer.classList.add('hidden');
+        statsContainer.classList.remove('flex');
     }
 }
 
@@ -287,6 +300,20 @@ async function downloadArtworkAsMp4() {
         const safeName = state.currentAlbumName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         a.download = `${safeName}_artwork.mp4`;
         a.click();
+
+        const storageKey = `downloaded_${state.currentM3u8Url}`;
+        if (!localStorage.getItem(storageKey)) {
+            try {
+                await fetch('/api/v1/artwork/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ m3u8Url: state.currentM3u8Url })
+                });
+                localStorage.setItem(storageKey, 'true');
+            } catch (e) {
+                console.warn("Failed to report download stat:", e);
+            }
+        }
         
         // cleanup
         URL.revokeObjectURL(downloadUrl);

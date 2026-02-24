@@ -52,8 +52,13 @@ try
     app.UseDefaultFiles();
     app.UseStaticFiles();
     
-    app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService) =>
+    app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
     {
+        var allEntries = cacheService.GetAll().ToList();
+        
+        int totalSearches = allEntries.Sum(e => e.SearchCount);
+        int totalDownloads = allEntries.Sum(e => e.DownloadCount);
+        
         if (statusService.IsRateLimited && (DateTime.UtcNow - statusService.LastErrorTime).TotalMinutes > 15)
         {
             statusService.IsRateLimited = false;
@@ -61,10 +66,14 @@ try
 
         if (statusService.IsRateLimited)
         {
-            return Results.Ok(new { status = "degraded", message = "Apple Music Rate Limit. May be unstable." });
+            return Results.Ok(new
+            {
+                status = "degraded", message = "Apple Music Rate Limit. May be unstable.", totalSearches, totalDownloads
+            });
         }
         
-        return Results.Ok(new { status = "operational", message = "System Operational" });
+        return Results.Ok(new
+            { status = "operational", message = "System Operational", totalSearches, totalDownloads });
     });
 
     app.MapGet("/api/v1/artwork/search", async (
@@ -73,6 +82,7 @@ try
         [FromQuery] string? title,
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
+        [FromServices] JsonCacheService cacheService,
         CancellationToken ct) =>
     {
         logger.LogInformation("Incoming Request: Metadata Search -> Artist: {Artist}, Album: {Album}, Title: {Title}", 
@@ -85,6 +95,8 @@ try
 
         if (entry != null && entry.M3u8Url != "NONE")
         {
+            await cacheService.IncrementSearchCountAsync(entry.AppleMusicUrl);
+            
             return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
         }
 
@@ -95,6 +107,7 @@ try
         [FromQuery] string url, 
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
+        [FromServices] JsonCacheService cacheService,
         CancellationToken ct) =>
     {
         logger.LogInformation("Incoming Request: URL Search -> {AppleMusicUrl}", url);
@@ -106,15 +119,29 @@ try
 
         if (entry != null && entry.M3u8Url != "NONE")
         {
+            await cacheService.IncrementSearchCountAsync(entry.AppleMusicUrl);
+            
             return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
         }
     
         return Results.NotFound(new { message = "No animated artwork found." });
     });
+    
+    app.MapPost("/api/v1/artwork/download", async (
+        DownloadReportRequest req, 
+        JsonCacheService cacheService) => 
+    {
+        if (string.IsNullOrWhiteSpace(req.M3u8Url))
+            return Results.BadRequest();
+
+        await cacheService.IncrementDownloadCountAsync(req.M3u8Url);
+        
+        return Results.Ok();
+    });
 
     app.MapGet("/api/v1/artwork/history", ([FromServices] JsonCacheService cache) =>
     {
-        var recent = cache.GetRecentSearches(10).Select(x => new 
+        var recent = cache.GetRecentSearches().Select(x => new 
         {
             artist = x.Artist,
             album = x.Album,
@@ -135,3 +162,5 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+public record DownloadReportRequest(string M3u8Url);

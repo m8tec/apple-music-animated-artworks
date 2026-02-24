@@ -5,5 +5,7 @@ public record ArtworkCacheEntry(
     string Artist,
     string Album,
     string? M3u8Url,
-    DateTime LastFetched
+    DateTime LastFetched,
+    int DownloadCount = 0,
+    int SearchCount = 0
 );
