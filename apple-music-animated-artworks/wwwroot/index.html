@@ -15,7 +15,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://artwork.m8tec.top/">
     <meta property="og:title" content="Apple Music Animated Artwork Finder">
-    <meta property="og:description" content="Extract and view high-quality animated album artworks from Apple Music instantly.">
+    <meta property="og:description" content="Extract and view animated album artworks from Apple Music.">
     <meta property="og:image" content="https://artwork.m8tec.top/og-image.jpg">
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -86,17 +86,17 @@
     <div class="glass-panel p-6 rounded-2xl">
         <h2 class="text-xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-orange-400">How It Works ⚙️</h2>
         <p class="text-gray-300 text-sm leading-relaxed mb-4">
-            Apple Music uses <strong>HLS (HTTP Live Streaming)</strong> to deliver their animated album artworks seamlessly. Instead of serving a static MP4 file, they provide an <code>.m3u8</code> playlist. This format chunks the video into tiny segments, allowing it to load instantly, loop perfectly without stuttering, and adapt to your network speed.
+            Apple Music uses <strong>HLS (HTTP Live Streaming)</strong> to deliver their animated album artworks. Instead of serving a static MP4 file, they provide an <code>.m3u8</code> playlist. This format chunks the video into tiny segments, allowing it to load instantly, loop without stuttering, and adapt to your network speed.
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed">
-            Our backend scrapes the required Apple Music page, extracts the hidden HLS playlist URL from the metadata, and returns it to this frontend. Here, we use <code>hls.js</code> to decode and render the stream natively in your browser.
+            The backend scrapes the required Apple Music page, extracts the hidden HLS playlist URL from the metadata, and returns it to this frontend. Here, we use <code>hls.js</code> to decode and render the stream natively in your browser.
         </p>
     </div>
 
     <div class="glass-panel p-6 rounded-2xl">
         <h2 class="text-xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-orange-400">Public API Endpoints 🚀</h2>
-        <p class="text-gray-400 text-sm mb-4">You can use our API directly in your own projects. The base URL is <code>https://artwork.m8tec.top</code>.</p>
+        <p class="text-gray-400 text-sm mb-4">You can use the API directly in your own projects. The base URL is <code>https://artwork.m8tec.top</code>.</p>
 
         <div class="space-y-4">
             <div class="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">

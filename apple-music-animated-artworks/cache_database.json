@@ -1,5 +1,12 @@
 [
   {
+    "AppleMusicUrl": "https://music.apple.com/album/945575406",
+    "Artist": "Red Hot Chili Peppers",
+    "Album": "Californication (Remastered)",
+    "M3u8Url": "https://mvod.itunes.apple.com/itunes-assets/HLSMusic126/v4/dd/b4/80/ddb480f3-44c1-f527-f442-ed2aa021a242/P394608058_default.m3u8",
+    "LastFetched": "2026-02-24T11:13:56.28674Z"
+  },
+  {
     "AppleMusicUrl": "https://music.apple.com/album/590431776",
     "Artist": "LINKIN PARK",
     "Album": "Hybrid Theory (Deluxe Edition)",

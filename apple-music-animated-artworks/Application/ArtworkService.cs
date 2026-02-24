@@ -70,7 +70,7 @@ public partial class ArtworkService(
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
         if (cachedEntry != null) return cachedEntry;
 
-        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlAsync(artist, album, title, ct);
+        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
         
         if (string.IsNullOrEmpty(appleMusicUrl)) 
         {
