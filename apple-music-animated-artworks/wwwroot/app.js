@@ -1,216 +1,111 @@
-const form = document.getElementById('searchForm');
-const submitBtn = document.getElementById('submitBtn');
-const spinner = document.getElementById('loadingSpinner');
-const statusMessage = document.getElementById('statusMessage');
-const videoContainer = document.getElementById('videoContainer');
-const videoElement = document.getElementById('artworkVideo');
-const rawLink = document.getElementById('rawLink');
-const historyContainer = document.getElementById('historyContainer');
-const historyList = document.getElementById('historyList');
+const ui = {
+    form: document.getElementById('searchForm'),
+    submitBtn: document.getElementById('submitBtn'),
+    spinner: document.getElementById('loadingSpinner'),
+    statusMessage: document.getElementById('statusMessage'),
+    videoContainer: document.getElementById('videoContainer'),
+    videoElement: document.getElementById('artworkVideo'),
+    rawLink: document.getElementById('rawLink'),
+    historyContainer: document.getElementById('historyContainer'),
+    historyList: document.getElementById('historyList'),
+    
+    tabDetails: document.getElementById('tabDetails'),
+    tabUrl: document.getElementById('tabUrl'),
+    groupDetails: document.getElementById('groupDetails'),
+    groupUrl: document.getElementById('groupUrl'),
+    
+    downloadBtn: document.getElementById('downloadMp4Btn'),
+    downloadBtnText: document.getElementById('downloadBtnText'),
+    
+    artworkMetadata: document.getElementById('artworkMetadata'),
+    metaAlbum: document.getElementById('metaAlbum'),
+    metaArtist: document.getElementById('metaArtist'),
+    cacheBadge: document.getElementById('cacheBadge')
+};
 
-const tabDetails = document.getElementById('tabDetails');
-const tabUrl = document.getElementById('tabUrl');
-const groupDetails = document.getElementById('groupDetails');
-const groupUrl = document.getElementById('groupUrl');
-
-let currentMode = 'details';
-let mainHls;
-let historyHlsInstances = [];
+let state = {
+    currentMode: 'details',
+    mainHls: null,
+    historyHlsInstances: [],
+    currentM3u8Url: null,
+    currentAlbumName: null
+};
 
 const { FFmpeg } = window.FFmpegWASM;
 let ffmpeg = null;
-let currentM3u8Url = null;
-let currentAlbumName = null;
 
 function setMode(mode) {
-    currentMode = mode;
+    state.currentMode = mode;
+    const activeClass = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg";
+    const inactiveClass = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
+
     if (mode === 'details') {
-        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg";
-        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
-        groupDetails.classList.remove('hidden');
-        groupUrl.classList.add('hidden');
+        ui.tabDetails.className = activeClass;
+        ui.tabUrl.className = inactiveClass;
+        ui.groupDetails.classList.remove('hidden');
+        ui.groupUrl.classList.add('hidden');
     } else {
-        tabUrl.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-gradient-to-r from-pink-600 to-orange-500 text-white shadow-lg";
-        tabDetails.className = "flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-400 hover:text-white";
-        groupUrl.classList.remove('hidden');
-        groupDetails.classList.add('hidden');
+        ui.tabUrl.className = activeClass;
+        ui.tabDetails.className = inactiveClass;
+        ui.groupUrl.classList.remove('hidden');
+        ui.groupDetails.classList.add('hidden');
     }
 }
 
-tabDetails.onclick = () => setMode('details');
-tabUrl.onclick = () => setMode('url');
+function showError(msg) {
+    ui.statusMessage.textContent = msg;
+    ui.statusMessage.className = "mt-4 text-center text-sm text-red-400";
+    ui.statusMessage.classList.remove('hidden');
+    ui.submitBtn.disabled = false;
+    ui.spinner.classList.add('hidden');
+}
+
+function updateMetadataUI(data) {
+    ui.artworkMetadata.classList.remove('hidden');
+    ui.metaAlbum.textContent = data.album;
+    ui.metaArtist.textContent = data.artist;
+
+    if (data.isCached) {
+        ui.cacheBadge.classList.remove('hidden');
+        ui.cacheBadge.classList.add('flex');
+    } else {
+        ui.cacheBadge.classList.add('hidden');
+        ui.cacheBadge.classList.remove('flex');
+    }
+}
 
 function playVideo(url) {
-    statusMessage.classList.add('hidden');
-    videoContainer.classList.remove('hidden');
-    rawLink.href = url;
-    rawLink.textContent = url;
-    rawLink.classList.remove('hidden');
+    ui.statusMessage.classList.add('hidden');
+    ui.videoContainer.classList.remove('hidden');
+    ui.rawLink.href = url;
+    ui.rawLink.textContent = url;
+    ui.rawLink.classList.remove('hidden');
 
     if (Hls.isSupported()) {
-        if (mainHls) mainHls.destroy();
-        mainHls = new Hls();
-        mainHls.loadSource(url);
-        mainHls.attachMedia(videoElement);
-        mainHls.on(Hls.Events.MANIFEST_PARSED, () => {
-            videoElement.play().catch(e => console.log("Autoplay prevented:", e));
+        if (state.mainHls) state.mainHls.destroy();
+        state.mainHls = new Hls();
+        state.mainHls.loadSource(url);
+        state.mainHls.attachMedia(ui.videoElement);
+        state.mainHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            ui.videoElement.play().catch(e => console.log("Autoplay prevented:", e));
         });
-    } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-        videoElement.src = url;
-        videoElement.addEventListener('loadedmetadata', () => {
-            videoElement.play().catch(e => console.log("Autoplay prevented:", e));
+    } else if (ui.videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+        ui.videoElement.src = url;
+        ui.videoElement.addEventListener('loadedmetadata', () => {
+            ui.videoElement.play().catch(e => console.log("Autoplay prevented:", e));
         });
     }
 }
-
-async function fetchGlobalHistory() {
-    try {
-        const response = await fetch('/api/v1/artwork/history');
-        if (!response.ok) return;
-
-        const historyData = await response.json();
-        
-        if (historyData.length > 0) {
-            historyContainer.classList.remove('hidden');
-            historyList.innerHTML = '';
-            
-            historyHlsInstances.forEach(hls => hls.destroy());
-            historyHlsInstances = []; 
-            
-            historyData.forEach((item, index) => {
-                const li = document.createElement('li');
-                li.className = 'glass-panel p-2 rounded-lg history-item flex items-center gap-3 transition-colors';
-                
-                li.innerHTML = `
-                    <div class="w-12 h-12 flex-shrink-0 rounded bg-gray-800 border border-gray-700 overflow-hidden relative shadow-inner">
-                        <video id="hist-vid-${index}" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
-                    </div>
-                    <div class="truncate flex-grow">
-                        <p class="font-bold text-sm text-gray-200 truncate">${item.album}</p>
-                        <p class="text-xs text-gray-400 truncate">${item.artist}</p>
-                    </div>
-                    <div class="text-xs text-gray-500 whitespace-nowrap ml-2 pr-2">
-                        ${new Date(item.fetchedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </div>
-                `;
-
-                li.onclick = () => {
-                    document.getElementById('artistInput').value = item.artist;
-                    document.getElementById('albumInput').value = item.album;
-                    playVideo(item.url);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                };
-                
-                historyList.appendChild(li);
-
-                const thumbnailVideo = document.getElementById(`hist-vid-${index}`);
-                
-                if (Hls.isSupported()) {
-                    const thumbHls = new Hls({
-                        capLevelToPlayerSize: true,
-                        autoStartLoad: true
-                    });
-                    thumbHls.loadSource(item.url);
-                    thumbHls.attachMedia(thumbnailVideo);
-                    thumbHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        thumbnailVideo.play().catch(e => console.log("Thumb Autoplay prevented:", e));
-                    });
-                    historyHlsInstances.push(thumbHls);
-                } else if (thumbnailVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                    thumbnailVideo.src = item.url;
-                    thumbnailVideo.addEventListener('loadedmetadata', () => {
-                        thumbnailVideo.play().catch(e => console.log("Thumb Autoplay prevented:", e));
-                    });
-                }
-            });
-        }
-    } catch (error) {
-        console.error("Failed to fetch history:", error);
-    }
-}
-
-form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    statusMessage.classList.add('hidden');
-    videoContainer.classList.add('hidden');
-    rawLink.classList.add('hidden');
-    submitBtn.disabled = true;
-    spinner.classList.remove('hidden');
-
-    let apiUrl = '';
-    
-    if (currentMode === 'details') {
-        const artist = document.getElementById('artistInput').value.trim();
-        const album = document.getElementById('albumInput').value.trim();
-        const title = document.getElementById('titleInput').value.trim();
-        
-        if (!artist || !album) {
-            showError("Please enter both Artist and Album.");
-            return;
-        }
-
-        const queryParams = { artist, album };
-        if (title) {
-            queryParams.title = title;
-        }
-
-        apiUrl = `/api/v1/artwork/search?${new URLSearchParams(queryParams)}`;
-    } else {
-        const url = document.getElementById('urlInput').value.trim();
-        if (!url || !url.includes('music.apple.com')) {
-            showError("Please enter a valid Apple Music URL.");
-            return;
-        }
-        apiUrl = `/api/v1/artwork/url?${new URLSearchParams({ url })}`;
-    }
-
-    try {
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            if (response.status === 404) throw new Error('No animated artwork found.');
-            throw new Error('Server error occurred.');
-        }
-
-        const data = await response.json();
-
-        currentM3u8Url = data.url;
-        currentAlbumName = data.album;
-        
-        playVideo(data.url);
-
-        document.getElementById('artworkMetadata').classList.remove('hidden');
-        document.getElementById('metaAlbum').textContent = data.album;
-        document.getElementById('metaArtist').textContent = data.artist;
-        
-        const cacheBadge = document.getElementById('cacheBadge');
-        if (data.isCached) {
-            cacheBadge.classList.remove('hidden');
-            cacheBadge.classList.add('flex');
-        } else {
-            cacheBadge.classList.add('hidden');
-            cacheBadge.classList.remove('flex');
-        }
-        
-        fetchGlobalHistory();
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        submitBtn.disabled = false;
-        spinner.classList.add('hidden');
-    }
-});
 
 async function fetchSystemStatus() {
+    const statusEl = document.getElementById('systemStatus');
+    const statusPing = document.getElementById('statusPing');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+
     try {
         const res = await fetch('/api/v1/status');
         const data = await res.json();
-
-        const statusEl = document.getElementById('systemStatus');
-        const statusPing = document.getElementById('statusPing');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-
         statusText.textContent = data.message;
 
         if (data.status === 'operational') {
@@ -223,11 +118,6 @@ async function fetchSystemStatus() {
             statusDot.className = "relative inline-flex rounded-full h-2 w-2 bg-yellow-500";
         }
     } catch (e) {
-        const statusEl = document.getElementById('systemStatus');
-        const statusPing = document.getElementById('statusPing');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-
         statusText.textContent = "Backend Offline";
         statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 transition-colors";
         statusPing.classList.add('hidden');
@@ -235,83 +125,137 @@ async function fetchSystemStatus() {
     }
 }
 
-function showError(msg) {
-    statusMessage.textContent = msg;
-    statusMessage.className = "mt-4 text-center text-sm text-red-400";
-    statusMessage.classList.remove('hidden');
-    submitBtn.disabled = false;
-    spinner.classList.add('hidden');
+async function fetchGlobalHistory() {
+    try {
+        const response = await fetch('/api/v1/artwork/history');
+        if (!response.ok) return;
+
+        const historyData = await response.json();
+        if (historyData.length === 0) return;
+
+        ui.historyContainer.classList.remove('hidden');
+        ui.historyList.innerHTML = '';
+
+        state.historyHlsInstances.forEach(hls => hls.destroy());
+        state.historyHlsInstances = [];
+
+        historyData.forEach((item, index) => {
+            const li = document.createElement('li');
+            li.className = 'glass-panel p-2 rounded-lg history-item flex items-center gap-3 transition-colors cursor-pointer hover:bg-white/5';
+            li.innerHTML = `
+                <div class="w-12 h-12 flex-shrink-0 rounded bg-gray-800 border border-gray-700 overflow-hidden relative shadow-inner">
+                    <video id="hist-vid-${index}" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
+                </div>
+                <div class="truncate flex-grow">
+                    <p class="font-bold text-sm text-gray-200 truncate">${item.album}</p>
+                    <p class="text-xs text-gray-400 truncate">${item.artist}</p>
+                </div>
+                <div class="text-xs text-gray-500 whitespace-nowrap ml-2 pr-2">
+                    ${new Date(item.fetchedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </div>
+            `;
+
+            li.onclick = () => {
+                document.getElementById('artistInput').value = item.artist;
+                document.getElementById('albumInput').value = item.album;
+                
+                state.currentM3u8Url = item.url;
+                state.currentAlbumName = item.album;
+
+                updateMetadataUI({
+                    album: item.album,
+                    artist: item.artist,
+                    isCached: true
+                });
+
+                playVideo(item.url);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            ui.historyList.appendChild(li);
+            
+            const thumbnailVideo = document.getElementById(`hist-vid-${index}`);
+            if (Hls.isSupported()) {
+                const thumbHls = new Hls({ capLevelToPlayerSize: true, autoStartLoad: true });
+                thumbHls.loadSource(item.url);
+                thumbHls.attachMedia(thumbnailVideo);
+                thumbHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    thumbnailVideo.play().catch(() => {});
+                });
+                state.historyHlsInstances.push(thumbHls);
+            } else if (thumbnailVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                thumbnailVideo.src = item.url;
+                thumbnailVideo.addEventListener('loadedmetadata', () => {
+                    thumbnailVideo.play().catch(() => {});
+                });
+            }
+        });
+    } catch (error) {
+        console.error("Failed to fetch history:", error);
+    }
 }
 
-document.getElementById('downloadMp4Btn').addEventListener('click', async () => {
-    if (!currentM3u8Url) return;
-
-    const btnText = document.getElementById('downloadBtnText');
-    const btn = document.getElementById('downloadMp4Btn');
+async function downloadArtworkAsMp4() {
+    if (!state.currentM3u8Url) return;
 
     try {
-        btn.disabled = true;
-        btn.classList.add('opacity-50', 'cursor-not-allowed');
+        ui.downloadBtn.disabled = true;
+        ui.downloadBtn.classList.add('opacity-50', 'cursor-not-allowed');
         
         if (!ffmpeg) {
-            btnText.textContent = "Loading Engine...";
+            ui.downloadBtnText.textContent = "Loading Engine...";
             ffmpeg = new FFmpeg();
-
             ffmpeg.on('progress', ({ progress }) => {
-                btnText.textContent = `Converting... ${Math.round(progress * 100)}%`;
+                ui.downloadBtnText.textContent = `Converting... ${Math.round(progress * 100)}%`;
             });
-
             const baseUrl = window.location.origin + '/ffmpeg';
-
             await ffmpeg.load({
                 coreURL: `${baseUrl}/ffmpeg-core.js`,
                 wasmURL: `${baseUrl}/ffmpeg-core.wasm`
             });
         }
         
-        btnText.textContent = "Parsing playlist...";
-        let res = await fetch(currentM3u8Url);
+        ui.downloadBtnText.textContent = "Parsing playlist...";
+        let res = await fetch(state.currentM3u8Url);
         let text = await res.text();
+        let targetM3u8Url = state.currentM3u8Url;
 
-        let targetM3u8Url = currentM3u8Url;
-        
         if (text.includes('#EXT-X-STREAM-INF')) {
             const lines = text.split('\n').map(l => l.trim()).filter(l => l);
             for (let i = 0; i < lines.length; i++) {
                 if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
                     let nextLine = lines[i + 1];
                     if (nextLine && !nextLine.startsWith('#')) {
-                        targetM3u8Url = new URL(nextLine, currentM3u8Url).href;
+                        targetM3u8Url = new URL(nextLine, state.currentM3u8Url).href;
                         break;
                     }
                 }
             }
         }
         
-        btnText.textContent = "Fetching segments...";
+        ui.downloadBtnText.textContent = "Fetching segments...";
         res = await fetch(targetM3u8Url);
         text = await res.text();
-        
+
         const allSegments = text.split('\n')
             .map(l => l.trim())
             .filter(line => line.length > 0 && !line.startsWith('#'))
             .map(line => new URL(line, targetM3u8Url).href);
-        
         const segments = [...new Set(allSegments)];
         
         let listFileContent = "";
         for (let i = 0; i < segments.length; i++) {
-            btnText.textContent = `Downloading chunk ${i+1}/${segments.length}...`;
+            ui.downloadBtnText.textContent = `Downloading chunk ${i+1}/${segments.length}...`;
             const segRes = await fetch(segments[i]);
             const segBuffer = await segRes.arrayBuffer();
             const fileName = `seg${i}.ts`;
             await ffmpeg.writeFile(fileName, new Uint8Array(segBuffer));
             listFileContent += `file '${fileName}'\n`;
         }
-        
+
         await ffmpeg.writeFile('list.txt', listFileContent);
         
-        btnText.textContent = "Merging Video...";
+        ui.downloadBtnText.textContent = "Merging Video...";
         await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4']);
         
         const data = await ffmpeg.readFile('output.mp4');
@@ -320,28 +264,88 @@ document.getElementById('downloadMp4Btn').addEventListener('click', async () => 
 
         const a = document.createElement('a');
         a.href = downloadUrl;
-        const safeName = currentAlbumName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const safeName = state.currentAlbumName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         a.download = `${safeName}_artwork.mp4`;
         a.click();
         
+        // cleanup
         URL.revokeObjectURL(downloadUrl);
         await ffmpeg.deleteFile('output.mp4');
         await ffmpeg.deleteFile('list.txt');
+        for (let i = 0; i < segments.length; i++) {
+            await ffmpeg.deleteFile(`seg${i}.ts`);
+        }
 
-        btnText.textContent = "Download Successful!";
-        setTimeout(() => { btnText.textContent = "Download as MP4"; }, 3000);
+        ui.downloadBtnText.textContent = "Download Successful!";
+        setTimeout(() => { ui.downloadBtnText.textContent = "Download as MP4"; }, 3000);
 
     } catch (e) {
         console.error("FFmpeg Error:", e);
-        btnText.textContent = "Error - Try again";
-        setTimeout(() => { btnText.textContent = "Download as MP4"; }, 3000);
+        ui.downloadBtnText.textContent = "Error - Try again";
+        setTimeout(() => { ui.downloadBtnText.textContent = "Download as MP4"; }, 3000);
     } finally {
-        btn.disabled = false;
-        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        ui.downloadBtn.disabled = false;
+        ui.downloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+ui.tabDetails.onclick = () => setMode('details');
+ui.tabUrl.onclick = () => setMode('url');
+ui.downloadBtn.addEventListener('click', downloadArtworkAsMp4);
+
+ui.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    ui.statusMessage.classList.add('hidden');
+    ui.videoContainer.classList.add('hidden');
+    ui.rawLink.classList.add('hidden');
+    ui.artworkMetadata.classList.add('hidden');
+    ui.submitBtn.disabled = true;
+    ui.spinner.classList.remove('hidden');
+
+    let apiUrl = '';
+
+    if (state.currentMode === 'details') {
+        const artist = document.getElementById('artistInput').value.trim();
+        const album = document.getElementById('albumInput').value.trim();
+        const title = document.getElementById('titleInput').value.trim();
+
+        if (!artist || !album) return showError("Please enter both Artist and Album.");
+
+        const queryParams = { artist, album };
+        if (title) queryParams.title = title;
+        apiUrl = `/api/v1/artwork/search?${new URLSearchParams(queryParams)}`;
+    } else {
+        const url = document.getElementById('urlInput').value.trim();
+        if (!url || !url.includes('music.apple.com')) return showError("Please enter a valid Apple Music URL.");
+        apiUrl = `/api/v1/artwork/url?${new URLSearchParams({ url })}`;
+    }
+
+    try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+            if (response.status === 404) throw new Error('No animated artwork found.');
+            throw new Error('Server error occurred.');
+        }
+
+        const data = await response.json();
+        
+        state.currentM3u8Url = data.url;
+        state.currentAlbumName = data.album;
+        
+        playVideo(data.url);
+        updateMetadataUI(data);
+        fetchGlobalHistory();
+
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        ui.submitBtn.disabled = false;
+        ui.spinner.classList.add('hidden');
     }
 });
 
-fetchGlobalHistory();
 
+fetchGlobalHistory();
 fetchSystemStatus();
 setInterval(fetchSystemStatus, 30000);
