@@ -33,7 +33,7 @@ docker run -d -p 8080:8080 -v ./data:/app/data ghcr.io/m8tec/apple-music-animate
 
 ### Run locally (.NET 10 required)
 ```
-git clone [https://github.com/m8tec/apple-music-animated-artworks.git](https://github.com/m8tec/apple-music-animated-artworks.git)
+git clone https://github.com/m8tec/apple-music-animated-artworks.git
 cd apple-music-animated-artworks
 dotnet run
 ```
