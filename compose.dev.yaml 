@@ -1,0 +1,8 @@
+services:
+  animated-artworks:
+    build:
+      context: ./apple-music-animated-artworks
+      dockerfile: Dockerfile
+    image: ghcr.io/m8tec/apple-music-animated-artworks:dev
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development

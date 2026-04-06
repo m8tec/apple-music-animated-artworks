@@ -1,9 +1,7 @@
 ﻿services:
-  artwork-finder:
-    container_name: apple-music-artwork-finder
-    build:
-      context: ./apple-music-animated-artworks
-      dockerfile: Dockerfile
+  animated-artworks:
+    container_name: apple-music-animated-artworks
+    image: ghcr.io/m8tec/apple-music-animated-artworks:latest
     ports:
       - "8080:8080"
     volumes:
