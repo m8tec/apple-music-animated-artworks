@@ -222,7 +222,13 @@ async function fetchGlobalHistory() {
                 });
 
                 playVideo(item.url);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                
+                requestAnimationFrame(() => {
+                    ui.videoContainer.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center'
+                    });
+                });
             };
 
             ui.historyList.appendChild(li);
