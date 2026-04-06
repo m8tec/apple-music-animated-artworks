@@ -170,6 +170,20 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                             
                             break;
                         }
+                        if (json?["@type"]?.ToString() == "MusicPlaylist")
+                        {
+                            JsonNode? nameNode = json["name"];
+                            if (nameNode != null) albumName = nameNode.ToString();
+
+                            JsonNode? authorNode = json["author"];
+                            if (authorNode != null)
+                            {
+                                JsonNode? authorNameNode = authorNode["name"];
+                                artistName = authorNameNode != null ? authorNameNode.ToString() : "Unknown Creator";
+                            }
+
+                            break;
+                        }
                     }
                     catch
                     {
