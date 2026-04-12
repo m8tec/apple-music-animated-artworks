@@ -24,21 +24,30 @@ A lightweight tool to fetch and display Apple Music’s animated album covers (H
 - Frontend: Plain JS, Tailwind CSS, Hls.js
 - Storage: Simple JSON-based persistence (In-memory dictionary + file flush)
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Run with Docker
 ```bash
-docker run -d -p 8080:8080 -v ./data:/app/data ghcr.io/m8tec/apple-music-animated-artworks:latest
+git clone https://github.com/m8tec/apple-music-animated-artworks.git
+cd apple-music-animated-artworks
+docker compose up -d
 ```
 
-### Run locally (.NET 10 required)
+### Build locally with Docker
+```bash
+git clone https://github.com/m8tec/apple-music-animated-artworks.git
+cd apple-music-animated-artworks
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 ```
+
+### Build locally without Docker (.NET 10 required)
+```bash
 git clone https://github.com/m8tec/apple-music-animated-artworks.git
 cd apple-music-animated-artworks
 dotnet run
 ```
 
-## 🛠 API Reference
+## API Reference
 
 Base URL: https://artwork.m8tec.top
 
@@ -54,11 +63,11 @@ Base URL: https://artwork.m8tec.top
 
 ```GET /api/v1/artwork/history```
 
-## 💾 Caching Strategy
+## Caching Strategy
 This project is designed to be "Apple-friendly" to avoid rate limits:
 1. **Fuzzy Matching:** The cache uses normalized two-way substring matching. Searching for base albums automatically resolves cached "Deluxe" or "Remastered" editions.
 2. **Prioritization:** Prefers cached entries with existing .m3u8 URLs.
 3. Negative Caching: Albums that are confirmed to have no animated artwork are cached as NONE to prevent repeated futile scraping.
 
-## ⚖️ Legal Disclaimer
+## Legal Disclaimer
 This project is for educational purposes only. It uses web scraping techniques to retrieve publicly available metadata. Please respect Apple Music's Terms of Service and use this tool responsibly.
