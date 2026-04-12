@@ -6,8 +6,8 @@
 
     <title>Apple Music Animated Artwork Downloader</title>
     <meta name="title" content="Apple Music Animated Artwork Downloader">
-    <meta name="description" content="Extract and download high-quality animated album artworks from Apple Music. Convert HLS (.m3u8) video streams to MP4.">
-    <meta name="keywords" content="apple music, animated artwork, download album cover, m3u8 to mp4, hls stream, video artwork downloader, apple music api, extract artwork mp4">
+    <meta name="description" content="Extract and download animated artworks from Apple Music as MP4 or WebP. Search by artist, album, or track name, or an Apple Music URL.">
+    <meta name="keywords" content="apple music, animated artwork, download album cover, m3u8 to mp4, m3u8 to webp, hls stream, video artwork downloader, apple music api, extract artwork mp4, extract artwork webp, navidrome animated artwork, navidrome animated cover, navidrome animated webp, navidrome cover downloader">
     <meta name="author" content="m8tec">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://artwork.m8tec.top/">
@@ -16,7 +16,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://artwork.m8tec.top/">
     <meta property="og:title" content="Apple Music Animated Artwork Downloader">
-    <meta property="og:description" content="Extract and download animated album artworks as MP4 files from Apple Music.">
+    <meta property="og:description" content="Extract and download animated artworks from Apple Music as MP4 or WebP. Search by artist, album, or track name, or an Apple Music URL.">
     <meta property="og:image" content="https://artwork.m8tec.top/og-image.jpg">
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -153,11 +153,15 @@
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed mb-4">
-            Our backend extracts these hidden playlists directly from Apple's metadata. Then, the magic happens in your browser: We use a WebAssembly port of <strong>FFmpeg</strong> to fetch the raw segments, filter out repeating loops, and convert them into a clean <strong>MP4</strong> or animated <strong>WebP</strong> download.
+            Our backend extracts these hidden playlists directly from Apple's metadata. Then, the magic happens in your browser: We use a WebAssembly port of <strong>FFmpeg</strong> to fetch the raw segments, filter out repeating loops, and convert them into a <strong>MP4</strong> or animated <strong>WebP</strong> download.
+        </p>
+
+        <p class="text-gray-300 text-sm leading-relaxed mb-4">
+            All video conversion happens locally on your device, ensuring lightning-fast downloads.
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed">
-            All video conversion happens locally on your device, ensuring lightning-fast downloads.
+            Tip: Navidrome, a self-hosted music server, supports animated WebP covers. Just manually upload the WebP file or put it as <code>cover.webp</code> in the album folder, and Navidrome will display the animation instead of the static image!
         </p>
     </div>
 
