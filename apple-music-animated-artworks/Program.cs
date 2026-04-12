@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Hosting.Server;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -59,7 +61,18 @@ try
     
     app.UseCors("AllowAll");
 
-    app.UseSerilogRequestLogging();
+    app.Lifetime.ApplicationStarted.Register(() =>
+    {
+        var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()?.Addresses;
+        if (addresses is { Count: > 0 })
+        {
+            Log.Information("Running on: {Addresses}", string.Join(", ", addresses));
+        }
+        else
+        {
+            Log.Information("Started, but no server addresses were available yet.");
+        }
+    });
 
     app.UseDefaultFiles();
     app.UseStaticFiles();
