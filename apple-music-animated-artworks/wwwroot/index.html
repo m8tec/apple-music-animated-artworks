@@ -23,7 +23,7 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="/ffmpeg/ffmpeg.js"></script>
     <link rel="stylesheet" href="styles.css">
-    <script src="app.js" defer></script>
+    <script src="app.js?v=20260412-2" defer></script>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 bg-[#121212] text-white selection:bg-pink-500 selection:text-white">
 
@@ -93,10 +93,40 @@
             </div>
         </div>
 
-        <button id="downloadMp4Btn" class="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-md text-sm text-white font-medium transition-colors flex items-center justify-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-            <span id="downloadBtnText">Download as MP4</span>
-        </button>
+        <details id="downloadOptionsDetails" class="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+            <summary class="px-3 py-2 text-sm font-medium text-gray-200 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-between">
+                Download Options
+            </summary>
+
+            <div class="p-3 border-t border-white/10 space-y-2">
+                <div id="downloadSettings" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                        <label for="resolutionSelect" class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Resolution</label>
+                        <select id="resolutionSelect" class="w-full px-3 py-2 rounded-md bg-gray-800/80 border border-gray-700 text-white text-sm focus:outline-none focus:border-pink-500 transition-colors">
+                            <option value="">Source stream</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label for="webpQuality" class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400">WebP Quality</label>
+                            <span id="webpQualityValue" class="text-xs text-gray-300 font-medium">80</span>
+                        </div>
+                        <input id="webpQuality" type="range" min="40" max="100" step="1" value="80" class="w-full accent-pink-500 cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button id="downloadMp4Btn" class="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-md text-sm text-white font-medium transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span id="downloadMp4BtnText">MP4</span>
+                    </button>
+                    <button id="downloadWebpBtn" class="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-md text-sm text-white font-medium transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span id="downloadWebpBtnText">WebP</span>
+                    </button>
+                </div>
+            </div>
+        </details>
     </div>
     
     <div id="videoContainer" class="mt-6 hidden rounded-lg overflow-hidden shadow-2xl border border-gray-700 relative aspect-square bg-black">
@@ -123,7 +153,7 @@
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed mb-4">
-            Our backend extracts these hidden playlists directly from Apple's metadata. Then, the magic happens in your browser: We use a WebAssembly port of <strong>FFmpeg</strong> to fetch the raw segments, filter out repeating loops, and seamlessly merge them into a single, high-quality <strong>MP4 file</strong> for you to download.
+            Our backend extracts these hidden playlists directly from Apple's metadata. Then, the magic happens in your browser: We use a WebAssembly port of <strong>FFmpeg</strong> to fetch the raw segments, filter out repeating loops, and convert them into a clean <strong>MP4</strong> or animated <strong>WebP</strong> download.
         </p>
 
         <p class="text-gray-300 text-sm leading-relaxed">

@@ -14,8 +14,13 @@ const ui = {
     groupDetails: document.getElementById('groupDetails'),
     groupUrl: document.getElementById('groupUrl'),
     
-    downloadBtn: document.getElementById('downloadMp4Btn'),
-    downloadBtnText: document.getElementById('downloadBtnText'),
+    downloadMp4Btn: document.getElementById('downloadMp4Btn'),
+    downloadMp4BtnText: document.getElementById('downloadMp4BtnText'),
+    downloadWebpBtn: document.getElementById('downloadWebpBtn'),
+    downloadWebpBtnText: document.getElementById('downloadWebpBtnText'),
+    resolutionSelect: document.getElementById('resolutionSelect'),
+    webpQuality: document.getElementById('webpQuality'),
+    webpQualityValue: document.getElementById('webpQualityValue'),
     
     artworkMetadata: document.getElementById('artworkMetadata'),
     metaAlbum: document.getElementById('metaAlbum'),
@@ -28,11 +33,13 @@ let state = {
     mainHls: null,
     historyHlsInstances: [],
     currentM3u8Url: null,
-    currentAlbumName: null
+    currentAlbumName: null,
+    resolutionVariants: []
 };
 
 const { FFmpeg } = window.FFmpegWASM;
 let ffmpeg = null;
+let activeProgressLabel = null;
 
 function setMode(mode) {
     state.currentMode = mode;
@@ -71,6 +78,113 @@ function updateMetadataUI(data) {
     } else {
         ui.cacheBadge.classList.add('hidden');
         ui.cacheBadge.classList.remove('flex');
+    }
+}
+
+function setResolutionOptions(options, selectedUrl) {
+    ui.resolutionSelect.innerHTML = '';
+
+    options.forEach((option, index) => {
+        const item = document.createElement('option');
+        item.value = option.url;
+        item.textContent = option.label;
+        if (selectedUrl) {
+            item.selected = option.url === selectedUrl;
+        } else if (index === 0) {
+            item.selected = true;
+        }
+        ui.resolutionSelect.appendChild(item);
+    });
+
+    if (!ui.resolutionSelect.value && options.length > 0) {
+        ui.resolutionSelect.value = options[0].url;
+    }
+}
+
+function parseMasterVariants(masterText, masterUrl) {
+    const lines = masterText.split('\n').map((line) => line.trim()).filter(Boolean);
+    const variants = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.startsWith('#EXT-X-STREAM-INF')) {
+            continue;
+        }
+
+        const nextLine = lines[i + 1];
+        if (!nextLine || nextLine.startsWith('#')) {
+            continue;
+        }
+
+        const resolutionMatch = line.match(/RESOLUTION=(\d+x\d+)/i);
+        const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/i);
+        const resolution = resolutionMatch ? resolutionMatch[1] : null;
+        const bandwidth = bandwidthMatch ? Number(bandwidthMatch[1]) : 0;
+        const url = new URL(nextLine, masterUrl).href;
+
+        let pixelCount = 0;
+        if (resolution) {
+            const [w, h] = resolution.toLowerCase().split('x').map(Number);
+            pixelCount = (w || 0) * (h || 0);
+        }
+
+        variants.push({
+            url,
+            resolution,
+            bandwidth,
+            pixelCount,
+            label: resolution ? `${resolution}` : `Variant ${variants.length + 1}`
+        });
+    }
+
+    const sortedVariants = variants.sort((a, b) => (b.pixelCount - a.pixelCount) || (b.bandwidth - a.bandwidth));
+
+    const seenResolutions = new Set();
+
+    return sortedVariants.filter((variant) => {
+        if (seenResolutions.has(variant.resolution)) {
+            return false;
+        }
+        
+        seenResolutions.add(variant.resolution);
+        return true;
+    });
+}
+
+async function fetchText(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error('Failed to load playlist.');
+    }
+    return response.text();
+}
+
+async function loadResolutionOptions(masterUrl) {
+    ui.resolutionSelect.innerHTML = '<option value="">Loading...</option>';
+    ui.resolutionSelect.disabled = true;
+
+    try {
+        const manifestText = await fetchText(masterUrl);
+        const hasMasterVariants = manifestText.includes('#EXT-X-STREAM-INF');
+
+        if (hasMasterVariants) {
+            const variants = parseMasterVariants(manifestText, masterUrl);
+            if (variants.length > 0) {
+                state.resolutionVariants = variants;
+                setResolutionOptions(variants, variants[0].url);
+                ui.resolutionSelect.disabled = false;
+                return;
+            }
+        }
+
+        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
+        setResolutionOptions(state.resolutionVariants, masterUrl);
+        ui.resolutionSelect.disabled = true;
+    } catch (error) {
+        console.warn('Resolution parsing failed:', error);
+        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
+        setResolutionOptions(state.resolutionVariants, masterUrl);
+        ui.resolutionSelect.disabled = true;
     }
 }
 
@@ -220,6 +334,7 @@ async function fetchGlobalHistory() {
                     artist: item.artist,
                     isCached: true
                 });
+                loadResolutionOptions(item.url);
 
                 playVideo(item.url);
                 
@@ -241,58 +356,130 @@ async function fetchGlobalHistory() {
     }
 }
 
-async function downloadArtworkAsMp4() {
-    if (!state.currentM3u8Url) return;
+async function ensureFfmpegLoaded() {
+    if (ffmpeg) {
+        return;
+    }
+
+    ffmpeg = new FFmpeg();
+    ffmpeg.on('progress', ({ progress }) => {
+        if (!activeProgressLabel) {
+            return;
+        }
+        var percent = Math.min(Math.max(Math.round(progress * 100), 0), 100);
+        activeProgressLabel.textContent = `Converting... ${percent}%`;
+    });
+
+    const baseUrl = window.location.origin + '/ffmpeg';
+    await ffmpeg.load({
+        coreURL: `${baseUrl}/ffmpeg-core.js`,
+        wasmURL: `${baseUrl}/ffmpeg-core.wasm`
+    });
+}
+
+function setDownloadButtonsBusy(isBusy) {
+    const classList = ['opacity-50', 'cursor-not-allowed'];
+    if (ui.downloadMp4Btn) ui.downloadMp4Btn.disabled = isBusy;
+    if (ui.downloadWebpBtn) ui.downloadWebpBtn.disabled = isBusy;
+
+    if (isBusy) {
+        if (ui.downloadMp4Btn) ui.downloadMp4Btn.classList.add(...classList);
+        if (ui.downloadWebpBtn) ui.downloadWebpBtn.classList.add(...classList);
+    } else {
+        if (ui.downloadMp4Btn) ui.downloadMp4Btn.classList.remove(...classList);
+        if (ui.downloadWebpBtn) ui.downloadWebpBtn.classList.remove(...classList);
+    }
+}
+
+function sanitizeFileName(input) {
+    return (input || 'artwork')
+        .replace(/[^a-z0-9]/gi, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toLowerCase() || 'artwork';
+}
+
+async function safeDeleteFsFile(fileName) {
+    try {
+        await ffmpeg.deleteFile(fileName);
+    } catch {
+        // Ignore missing files during cleanup.
+    }
+}
+
+async function resolveMediaPlaylistUrl(candidateUrl) {
+    const manifestText = await fetchText(candidateUrl);
+    if (!manifestText.includes('#EXT-X-STREAM-INF')) {
+        return candidateUrl;
+    }
+
+    const variants = parseMasterVariants(manifestText, candidateUrl);
+    if (variants.length === 0) {
+        throw new Error('No playable stream variant found.');
+    }
+
+    return variants[0].url;
+}
+
+async function fetchSegmentUrls(mediaPlaylistUrl) {
+    const text = await fetchText(mediaPlaylistUrl);
+    const allSegments = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'))
+        .map((line) => new URL(line, mediaPlaylistUrl).href);
+
+    return [...new Set(allSegments)];
+}
+
+async function reportDownloadStat(format) {
+    const storageKey = `downloaded_${format}_${state.currentM3u8Url}`;
+    if (localStorage.getItem(storageKey)) {
+        return;
+    }
 
     try {
-        ui.downloadBtn.disabled = true;
-        ui.downloadBtn.classList.add('opacity-50', 'cursor-not-allowed');
-        
-        if (!ffmpeg) {
-            ui.downloadBtnText.textContent = "Loading Engine...";
-            ffmpeg = new FFmpeg();
-            ffmpeg.on('progress', ({ progress }) => {
-                ui.downloadBtnText.textContent = `Converting... ${Math.round(progress * 100)}%`;
-            });
-            const baseUrl = window.location.origin + '/ffmpeg';
-            await ffmpeg.load({
-                coreURL: `${baseUrl}/ffmpeg-core.js`,
-                wasmURL: `${baseUrl}/ffmpeg-core.wasm`
-            });
-        }
-        
-        ui.downloadBtnText.textContent = "Parsing playlist...";
-        let res = await fetch(state.currentM3u8Url);
-        let text = await res.text();
-        let targetM3u8Url = state.currentM3u8Url;
+        await fetch('/api/v1/artwork/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ m3u8Url: state.currentM3u8Url })
+        });
+        localStorage.setItem(storageKey, 'true');
+    } catch (error) {
+        console.warn('Failed to report download stat:', error);
+    }
+}
 
-        if (text.includes('#EXT-X-STREAM-INF')) {
-            const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
-                    let nextLine = lines[i + 1];
-                    if (nextLine && !nextLine.startsWith('#')) {
-                        targetM3u8Url = new URL(nextLine, state.currentM3u8Url).href;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        ui.downloadBtnText.textContent = "Fetching segments...";
-        res = await fetch(targetM3u8Url);
-        text = await res.text();
+async function downloadArtwork(format) {
+    if (!state.currentM3u8Url) return;
 
-        const allSegments = text.split('\n')
-            .map(l => l.trim())
-            .filter(line => line.length > 0 && !line.startsWith('#'))
-            .map(line => new URL(line, targetM3u8Url).href);
-        const segments = [...new Set(allSegments)];
-        
+    const isWebp = format === 'webp';
+    const buttonLabel = isWebp ? ui.downloadWebpBtnText : ui.downloadMp4BtnText;
+    const defaultLabel = isWebp ? 'WebP' : 'MP4';
+    const outputFileName = isWebp ? 'output.webp' : 'output.mp4';
+
+    try {
+        setDownloadButtonsBusy(true);
+        buttonLabel.textContent = 'Loading Engine...';
+        activeProgressLabel = buttonLabel;
+        await ensureFfmpegLoaded();
+
+        const selectedStreamUrl = ui.resolutionSelect.value || state.currentM3u8Url;
+        buttonLabel.textContent = 'Preparing stream...';
+        const mediaPlaylistUrl = await resolveMediaPlaylistUrl(selectedStreamUrl);
+        const segments = await fetchSegmentUrls(mediaPlaylistUrl);
+
+        if (segments.length === 0) {
+            throw new Error('No media segments found.');
+        }
+
         let listFileContent = "";
         for (let i = 0; i < segments.length; i++) {
-            ui.downloadBtnText.textContent = `Downloading chunk ${i+1}/${segments.length}...`;
+            buttonLabel.textContent = `Downloading ${i + 1}/${segments.length}...`;
             const segRes = await fetch(segments[i]);
+            if (!segRes.ok) {
+                throw new Error('Failed to download HLS segment.');
+            }
             const segBuffer = await segRes.arrayBuffer();
             const fileName = `seg${i}.ts`;
             await ffmpeg.writeFile(fileName, new Uint8Array(segBuffer));
@@ -300,58 +487,77 @@ async function downloadArtworkAsMp4() {
         }
 
         await ffmpeg.writeFile('list.txt', listFileContent);
-        
-        ui.downloadBtnText.textContent = "Merging Video...";
-        await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4']);
-        
-        const data = await ffmpeg.readFile('output.mp4');
-        const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
-        const downloadUrl = URL.createObjectURL(videoBlob);
+
+        buttonLabel.textContent = 'Merging video...';
+        await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'temp.mp4']);
+
+        if (isWebp) {
+            const quality = Number(ui.webpQuality.value) || 80;
+            buttonLabel.textContent = 'Encoding WebP...';
+            await ffmpeg.exec([
+                '-i', 'temp.mp4',
+                '-an',
+                '-c:v', 'libwebp',
+                '-loop', '0',
+                '-q:v', String(quality),
+                outputFileName
+            ]);
+        } else {
+            await ffmpeg.exec(['-i', 'temp.mp4', '-c', 'copy', outputFileName]);
+        }
+
+        const data = await ffmpeg.readFile(outputFileName);
+        const mimeType = isWebp ? 'image/webp' : 'video/mp4';
+        const outputBlob = new Blob([data.buffer], { type: mimeType });
+        const downloadUrl = URL.createObjectURL(outputBlob);
 
         const a = document.createElement('a');
         a.href = downloadUrl;
-        const safeName = state.currentAlbumName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        a.download = `${safeName}_artwork.mp4`;
+        const safeName = sanitizeFileName(state.currentAlbumName);
+        a.download = `${safeName}_artwork.${format}`;
         a.click();
 
-        const storageKey = `downloaded_${state.currentM3u8Url}`;
-        if (!localStorage.getItem(storageKey)) {
-            try {
-                await fetch('/api/v1/artwork/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ m3u8Url: state.currentM3u8Url })
-                });
-                localStorage.setItem(storageKey, 'true');
-            } catch (e) {
-                console.warn("Failed to report download stat:", e);
-            }
-        }
-        
-        // cleanup
         URL.revokeObjectURL(downloadUrl);
-        await ffmpeg.deleteFile('output.mp4');
-        await ffmpeg.deleteFile('list.txt');
+        await reportDownloadStat(format);
+
+        buttonLabel.textContent = 'Done';
+        setTimeout(() => {
+            buttonLabel.textContent = defaultLabel;
+        }, 2200);
+
+        await safeDeleteFsFile(outputFileName);
+        await safeDeleteFsFile('temp.mp4');
+        await safeDeleteFsFile('list.txt');
         for (let i = 0; i < segments.length; i++) {
-            await ffmpeg.deleteFile(`seg${i}.ts`);
+            await safeDeleteFsFile(`seg${i}.ts`);
         }
 
-        ui.downloadBtnText.textContent = "Download Successful!";
-        setTimeout(() => { ui.downloadBtnText.textContent = "Download as MP4"; }, 3000);
-
-    } catch (e) {
-        console.error("FFmpeg Error:", e);
-        ui.downloadBtnText.textContent = "Error - Try again";
-        setTimeout(() => { ui.downloadBtnText.textContent = "Download as MP4"; }, 3000);
+    } catch (error) {
+        console.error('FFmpeg Error:', error);
+        buttonLabel.textContent = 'Error - Retry';
+        setTimeout(() => {
+            buttonLabel.textContent = defaultLabel;
+        }, 3000);
     } finally {
-        ui.downloadBtn.disabled = false;
-        ui.downloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        activeProgressLabel = null;
+        setDownloadButtonsBusy(false);
     }
 }
 
 ui.tabDetails.onclick = () => setMode('details');
 ui.tabUrl.onclick = () => setMode('url');
-ui.downloadBtn.addEventListener('click', downloadArtworkAsMp4);
+if (ui.downloadMp4Btn) {
+    ui.downloadMp4Btn.addEventListener('click', () => downloadArtwork('mp4'));
+}
+if (ui.downloadWebpBtn) {
+    ui.downloadWebpBtn.addEventListener('click', () => downloadArtwork('webp'));
+}
+if (ui.webpQuality && ui.webpQualityValue) {
+    ui.webpQualityValue.textContent = ui.webpQuality.value;
+    ui.webpQuality.addEventListener('input', () => {
+        ui.webpQualityValue.textContent = ui.webpQuality.value;
+    });
+}
 
 ui.form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -395,6 +601,7 @@ ui.form.addEventListener('submit', async (e) => {
         
         playVideo(data.url);
         updateMetadataUI(data);
+        await loadResolutionOptions(data.url);
         fetchGlobalHistory();
 
     } catch (error) {
