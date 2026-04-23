@@ -37,13 +37,14 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         try
         {
+            Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
             
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
 
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
-            
+
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit on Apple Music: {StatusCode}", response.StatusCode);
@@ -117,8 +118,9 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         try
         {
+            Log.Information("Outgoing request to iTunes search: {SearchUrl}", searchUrl);
             HttpResponseMessage response = await httpClient.GetAsync(searchUrl, ct);
-            
+
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit on iTunes API: {StatusCode}", response.StatusCode);
@@ -157,6 +159,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     {
         try 
         {
+            Log.Information("Outgoing request to Apple Music album page: {Url}", url);
             HttpResponseMessage response = await httpClient.GetAsync(url, ct);
             
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
