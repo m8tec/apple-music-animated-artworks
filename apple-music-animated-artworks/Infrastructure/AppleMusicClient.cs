@@ -26,7 +26,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     private const string AppleMusicSearchUrl = "https://music.apple.com/us/search?term=";
     private const string ItunesSearchUrl = "https://itunes.apple.com/search";
     
-    public async Task<string?> GetAppleMusicUrlViaWebSearchAsync(string artist, string album, string? title = null, CancellationToken ct = default)
+    public async Task<AppleMusicWebSearchResult> GetAppleMusicUrlViaWebSearchAsync(string artist, string album, string? title = null, CancellationToken ct = default)
     {
         List<string> searchParts = [artist, album];
         if (!string.IsNullOrWhiteSpace(title)) searchParts.Add(title);
@@ -49,7 +49,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             {
                 Log.Warning("Rate Limit hit on Apple Music: {StatusCode}", response.StatusCode);
                 statusService.ReportRateLimit();
-                return null;
+                return new(AppleMusicWebSearchStatus.RateLimited);
             }
             
             response.EnsureSuccessStatusCode();
@@ -68,20 +68,20 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                 if (ContainsAlbumName(foundAlbumSlug, album))
                 {
                     Log.Debug("Found matching album: {Url} for query: {Query}", foundUrl, query);
-                    return foundUrl;
+                    return new(AppleMusicWebSearchStatus.Found, foundUrl);
                 }
 
                 Log.Debug("Rejected non-matching album hit. Requested: {RequestedAlbum}, Found: {FoundAlbum}, Url: {Url}", album, foundAlbumSlug, foundUrl);
             }
             
             Log.Debug("Found no matching album links in HTML for query: {Query}", query);
+            return new(AppleMusicWebSearchStatus.NoMatch);
         }
         catch (Exception ex)
         {
             Log.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
+            return new(AppleMusicWebSearchStatus.Error);
         }
-
-        return null;
     }
 
     private static bool ContainsAlbumName(string foundAlbumName, string requestedAlbumName)

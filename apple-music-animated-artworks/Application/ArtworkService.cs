@@ -112,19 +112,37 @@ public partial class ArtworkService(
             Log.Information("Cache miss (by metadata): Artist={Artist}, Album={Album}", artist, album);
         }
 
-        Log.Information("Triggering Apple Music web search: Artist={Artist}, Album={Album}, Title={Title}", artist, album, title ?? "N/A");
+        Log.Information("Triggering web search: Artist={Artist}, Album={Album}, Title={Title}", artist, album, title ?? "N/A");
 
-        string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
-        
-        if (string.IsNullOrEmpty(appleMusicUrl)) 
+        AppleMusicWebSearchResult webSearchResult = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
+
+        if (webSearchResult.Status == AppleMusicWebSearchStatus.NoMatch)
         {
             await cache.SaveNegativeSearchResultAsync(artist, album);
-            Log.Information("Apple Music web search returned no match. Negative cache saved for Artist={Artist}, Album={Album}", artist, album);
+            Log.Information("Web search returned no match. Negative cache saved for Artist={Artist}, Album={Album}", artist, album);
             return (null, false);
         }
 
-        Log.Information("Apple Music web search resolved URL: {AppleMusicUrl}", appleMusicUrl);
-        
-        return await GetArtworkByUrlAsync(appleMusicUrl, ct);
+        if (webSearchResult.Status == AppleMusicWebSearchStatus.RateLimited)
+        {
+            Log.Information("Search was rate limited for Artist={Artist}, Album={Album}", artist, album);
+            return (null, false);
+        }
+
+        if (webSearchResult.Status == AppleMusicWebSearchStatus.Error)
+        {
+            Log.Information("Search failed unexpectedly for Artist={Artist}, Album={Album}", artist, album);
+            return (null, false);
+        }
+
+        if (string.IsNullOrWhiteSpace(webSearchResult.Url))
+        {
+            Log.Warning("Search returned status Found without URL for Artist={Artist}, Album={Album}", artist, album);
+            return (null, false);
+        }
+
+        Log.Information("Search resolved URL: {AppleMusicUrl}", webSearchResult.Url);
+
+        return await GetArtworkByUrlAsync(webSearchResult.Url, ct);
     }
 }
