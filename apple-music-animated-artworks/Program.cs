@@ -86,7 +86,7 @@ try
         
         if (statusService.IsRateLimited && (DateTime.UtcNow - statusService.LastErrorTime).TotalMinutes > 15)
         {
-            statusService.IsRateLimited = false;
+            statusService.ReportSuccess();
         }
 
         if (statusService.IsRateLimited)

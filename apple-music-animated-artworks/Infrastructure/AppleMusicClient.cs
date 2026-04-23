@@ -35,6 +35,12 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         string searchUrl = AppleMusicSearchUrl + query;
 
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping Apple Music search request for {SearchUrl}", searchUrl);
+            return new(AppleMusicWebSearchStatus.RateLimited);
+        }
+
         try
         {
             Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
