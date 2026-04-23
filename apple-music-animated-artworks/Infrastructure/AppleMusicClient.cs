@@ -11,6 +11,8 @@ using Serilog;
 namespace AnimatedArtworks.Infrastructure;
 public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService statusService) : IAppleMusicClient
 {
+    private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
+
     [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private partial Regex JsonLdRegex();
 
@@ -37,13 +39,20 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         if (statusService.IsInBackoff())
         {
-            Log.Warning("Global rate-limit backoff active. Skipping Apple Music search request for {SearchUrl}", searchUrl);
+            Log.Warning("Global rate-limit backoff active. Skipping search request for {SearchUrl}", searchUrl);
             return new(AppleMusicWebSearchStatus.RateLimited);
         }
 
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try
         {
-            Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping search request for {SearchUrl}", searchUrl);
+                return new(AppleMusicWebSearchStatus.RateLimited);
+            }
+
+            Log.Information("Outgoing search request: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
             
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -87,6 +96,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         {
             Log.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
             return new(AppleMusicWebSearchStatus.Error);
+        }
+        finally
+        {
+            GlobalAppleMusicRequestLock.Release();
         }
     }
 
@@ -161,18 +174,31 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         return null;
     }
 
-    public async Task<(string? M3u8Url, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct)
+    public async Task<AppleMusicPageParseResult> ParseAppleMusicPageAsync(string url, CancellationToken ct)
     {
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping album page request for {Url}", url);
+            return new(AppleMusicPageParseStatus.RateLimited);
+        }
+
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try 
         {
-            Log.Information("Outgoing request to Apple Music album page: {Url}", url);
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping album page request for {Url}", url);
+                return new(AppleMusicPageParseStatus.RateLimited);
+            }
+
+            Log.Information("Outgoing request to album page: {Url}", url);
             HttpResponseMessage response = await httpClient.GetAsync(url, ct);
             
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit while parsing album page: {StatusCode}", response.StatusCode);
                 statusService.ReportRateLimit();
-                return (null, "Unknown Artist", "Unknown Album");
+                return new(AppleMusicPageParseStatus.RateLimited);
             }
 
             response.EnsureSuccessStatusCode();
@@ -232,12 +258,15 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                 }
             }
 
-            return (m3u8Url, artistName, albumName);
+            return new(AppleMusicPageParseStatus.Success, m3u8Url, artistName, albumName);
         }
         catch (HttpRequestException ex)
         {
             Log.Error("Network error in ParseAppleMusicPageAsync: {Message}", ex.Message);
-            return (null, "Unknown Artist", "Unknown Album");
+            return new(AppleMusicPageParseStatus.Error);
+        }
+        finally{
+            GlobalAppleMusicRequestLock.Release();
         }
     }
 }

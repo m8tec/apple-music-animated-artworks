@@ -57,8 +57,23 @@ public partial class ArtworkService(
                 return (cachedEntry, true);
             }
 
-            (string? m3u8Url, string artist, string album) =
-                await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
+            AppleMusicPageParseResult parseResult = await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
+
+            if (parseResult.Status == AppleMusicPageParseStatus.RateLimited)
+            {
+                Log.Information("Album page request was rate limited for URL: {AppleMusicUrl}. Skipping cache save.", normalizedUrl);
+                return (null, false);
+            }
+
+            if (parseResult.Status == AppleMusicPageParseStatus.Error)
+            {
+                Log.Information("Album page request failed for URL: {AppleMusicUrl}. Skipping cache save.", normalizedUrl);
+                return (null, false);
+            }
+
+            string? m3u8Url = parseResult.M3u8Url;
+            string artist = parseResult.Artist;
+            string album = parseResult.Album;
 
             ArtworkCacheEntry newEntry = new(
                 AppleMusicUrl: normalizedUrl,
