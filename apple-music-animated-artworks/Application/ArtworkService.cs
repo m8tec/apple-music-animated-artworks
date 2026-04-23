@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AnimatedArtworks.Infrastructure;
+using Serilog;
 
 namespace AnimatedArtworks.Application;
 
@@ -11,6 +12,8 @@ public partial class ArtworkService(
     JsonCacheService cache,
     KeyedLocker locker)
 {
+    private static readonly TimeSpan NegativeSearchCacheTtl = TimeSpan.FromDays(30);
+
     [GeneratedRegex(@"album/.*/(\d+)|album/(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex AlbumIdRegex();
 
@@ -34,7 +37,13 @@ public partial class ArtworkService(
         string normalizedUrl = NormalizeUrl(appleMusicUrl);
 
         ArtworkCacheEntry? cachedEntry = cache.GetByUrl(normalizedUrl);
-        if (cachedEntry != null) return (cachedEntry, true);
+        if (cachedEntry != null)
+        {
+            Log.Information("Cache hit (by URL): {AppleMusicUrl}", normalizedUrl);
+            return (cachedEntry, true);
+        }
+
+        Log.Information("Cache miss (by URL): {AppleMusicUrl}", normalizedUrl);
 
         SemaphoreSlim semaphore = locker.GetLock(normalizedUrl);
         await semaphore.WaitAsync(ct);
@@ -42,7 +51,11 @@ public partial class ArtworkService(
         try
         {
             cachedEntry = cache.GetByUrl(normalizedUrl);
-            if (cachedEntry != null) return (cachedEntry, true);
+            if (cachedEntry != null)
+            {
+                Log.Information("Cache hit after lock (by URL): {AppleMusicUrl}", normalizedUrl);
+                return (cachedEntry, true);
+            }
 
             (string? m3u8Url, string artist, string album) =
                 await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
@@ -56,6 +69,11 @@ public partial class ArtworkService(
             );
 
             await cache.SaveEntryAsync(newEntry);
+            Log.Information("Saved cache entry (by URL): {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
+                normalizedUrl,
+                artist,
+                album,
+                m3u8Url != null);
 
             return (newEntry, false);
         }
@@ -69,14 +87,43 @@ public partial class ArtworkService(
         CancellationToken ct = default)
     {
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
-        if (cachedEntry != null) return (cachedEntry, true);
+        if (cachedEntry != null)
+        {
+            if (!cache.IsNegativeSearchEntry(cachedEntry))
+            {
+                Log.Information("Cache hit (by metadata): Artist={Artist}, Album={Album} resolved to {CachedArtist} - {CachedAlbum}",
+                    artist,
+                    album,
+                    cachedEntry.Artist,
+                    cachedEntry.Album);
+                return (cachedEntry, true);
+            }
+
+            if (DateTime.UtcNow - cachedEntry.LastFetched <= NegativeSearchCacheTtl)
+            {
+                Log.Information("Negative cache hit (by metadata): Artist={Artist}, Album={Album}. Skipping external search.", artist, album);
+                return (cachedEntry, true);
+            }
+
+            Log.Information("Negative cache expired (by metadata): Artist={Artist}, Album={Album}. Performing external search.", artist, album);
+        }
+        else
+        {
+            Log.Information("Cache miss (by metadata): Artist={Artist}, Album={Album}", artist, album);
+        }
+
+        Log.Information("Triggering Apple Music web search: Artist={Artist}, Album={Album}, Title={Title}", artist, album, title ?? "N/A");
 
         string? appleMusicUrl = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
         
         if (string.IsNullOrEmpty(appleMusicUrl)) 
         {
+            await cache.SaveNegativeSearchResultAsync(artist, album);
+            Log.Information("Apple Music web search returned no match. Negative cache saved for Artist={Artist}, Album={Album}", artist, album);
             return (null, false);
         }
+
+        Log.Information("Apple Music web search resolved URL: {AppleMusicUrl}", appleMusicUrl);
         
         return await GetArtworkByUrlAsync(appleMusicUrl, ct);
     }

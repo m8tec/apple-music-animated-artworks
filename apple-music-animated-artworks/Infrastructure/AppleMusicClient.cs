@@ -17,8 +17,11 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     [GeneratedRegex(@"<amp-ambient-video[^>]*?src=""([^""]+\.m3u8)""", RegexOptions.IgnoreCase)]
     private partial Regex AmpVideoRegex();
     
-    [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/[^/""?]+/\d+)""", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/([^/""?]+)/\d+)""", RegexOptions.IgnoreCase)]
     private partial Regex AppleMusicLinkRegex();
+
+    [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.IgnoreCase)]
+    private static partial Regex NonAlphanumericRegex();
 
     private const string AppleMusicSearchUrl = "https://music.apple.com/us/search?term=";
     private const string ItunesSearchUrl = "https://itunes.apple.com/search";
@@ -34,13 +37,14 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         try
         {
+            Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
             
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
 
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
-            
+
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit on Apple Music: {StatusCode}", response.StatusCode);
@@ -54,16 +58,23 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
             string htmlContent = await response.Content.ReadAsStringAsync(ct);
             
-            Match match = AppleMusicLinkRegex().Match(htmlContent);
+            MatchCollection matches = AppleMusicLinkRegex().Matches(htmlContent);
 
-            if (match.Success)
+            foreach (Match match in matches)
             {
                 string foundUrl = match.Groups[1].Value;
-                Log.Debug("Found album: {Url} for query: {Query}", foundUrl, query);
-                return foundUrl;
+                string foundAlbumSlug = Uri.UnescapeDataString(match.Groups[2].Value).Replace('-', ' ');
+
+                if (ContainsAlbumName(foundAlbumSlug, album))
+                {
+                    Log.Debug("Found matching album: {Url} for query: {Query}", foundUrl, query);
+                    return foundUrl;
+                }
+
+                Log.Debug("Rejected non-matching album hit. Requested: {RequestedAlbum}, Found: {FoundAlbum}, Url: {Url}", album, foundAlbumSlug, foundUrl);
             }
             
-            Log.Debug("Found no album links in HTML for query: {Query}", query);
+            Log.Debug("Found no matching album links in HTML for query: {Query}", query);
         }
         catch (Exception ex)
         {
@@ -71,6 +82,27 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         }
 
         return null;
+    }
+
+    private static bool ContainsAlbumName(string foundAlbumName, string requestedAlbumName)
+    {
+        string normalizedFound = NormalizeForComparison(foundAlbumName);
+        string normalizedRequested = NormalizeForComparison(requestedAlbumName);
+
+        if (string.IsNullOrWhiteSpace(normalizedFound) || string.IsNullOrWhiteSpace(normalizedRequested))
+        {
+            return false;
+        }
+
+        return normalizedFound.Contains(normalizedRequested, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeForComparison(string input)
+    {
+        string normalized = input.Trim().ToLowerInvariant();
+        normalized = NonAlphanumericRegex().Replace(normalized, " ");
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        return normalized;
     }
 
     public async Task<string?> GetAppleMusicUrlViaItunesAsync(string artist, string album, string? title = null, CancellationToken ct = default)
@@ -86,8 +118,9 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         try
         {
+            Log.Information("Outgoing request to iTunes search: {SearchUrl}", searchUrl);
             HttpResponseMessage response = await httpClient.GetAsync(searchUrl, ct);
-            
+
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit on iTunes API: {StatusCode}", response.StatusCode);
@@ -126,6 +159,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     {
         try 
         {
+            Log.Information("Outgoing request to Apple Music album page: {Url}", url);
             HttpResponseMessage response = await httpClient.GetAsync(url, ct);
             
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)

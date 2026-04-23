@@ -118,11 +118,14 @@ try
         
         (ArtworkCacheEntry? entry, bool isCached) = await service.GetArtworkByDetailsAsync(artist, album, title, ct);
 
-        if (entry != null && entry.M3u8Url != "NONE")
+        if (entry != null)
         {
-            await cacheService.IncrementSearchCountAsync(entry.AppleMusicUrl);
-            
-            return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+            await cacheService.IncrementSearchCountAsync(entry);
+
+            if (entry.M3u8Url != "NONE")
+            {
+                return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+            }
         }
 
         return Results.NotFound(new { message = "No animated artwork found." });
@@ -142,11 +145,14 @@ try
 
         var (entry, isCached) = await service.GetArtworkByUrlAsync(url, ct);
 
-        if (entry != null && entry.M3u8Url != "NONE")
+        if (entry != null)
         {
-            await cacheService.IncrementSearchCountAsync(entry.AppleMusicUrl);
+            await cacheService.IncrementSearchCountAsync(entry);
             
-            return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+            if (entry.M3u8Url != "NONE")
+            {
+                return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+            }
         }
     
         return Results.NotFound(new { message = "No animated artwork found." });
