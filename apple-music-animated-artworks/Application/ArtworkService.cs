@@ -57,7 +57,7 @@ public partial class ArtworkService(
                 return (cachedEntry, true);
             }
 
-            (string? m3u8Url, string artist, string album) =
+            (string? m3u8Url, string? m3u8UrlTall, string artist, string album) =
                 await appleMusicClient.ParseAppleMusicPageAsync(appleMusicUrl, ct);
 
             ArtworkCacheEntry newEntry = new(
@@ -65,6 +65,7 @@ public partial class ArtworkService(
                 Artist: artist,
                 Album: album,
                 M3u8Url: m3u8Url ?? "NONE",
+                M3u8UrlTall: m3u8UrlTall ?? "NONE",
                 LastFetched: DateTime.UtcNow
             );
 
@@ -73,7 +74,7 @@ public partial class ArtworkService(
                 normalizedUrl,
                 artist,
                 album,
-                m3u8Url != null);
+                m3u8Url != null || m3u8UrlTall != null);
 
             return (newEntry, false);
         }
