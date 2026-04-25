@@ -4,7 +4,7 @@ namespace AnimatedArtworks.Infrastructure;
 
 public class SystemStatusService
 {
-    private static readonly TimeSpan RateLimitBackoff = TimeSpan.FromSeconds(240);
+    private static readonly TimeSpan RateLimitBackoff = TimeSpan.FromHours(1);
 
     public bool IsRateLimited { get; private set; } = false;
     public DateTime LastErrorTime { get; private set; } = DateTime.MinValue;
