@@ -21,7 +21,7 @@ public partial class ArtworkService(
     {
         bool hasSquareArtwork = !string.IsNullOrWhiteSpace(entry.M3u8Url) && entry.M3u8Url != "NONE";
         bool missingTallArtwork = string.IsNullOrWhiteSpace(entry.M3u8UrlTall);
-        bool updatedBeforeTallImplement = entry.LastUpdated.Date < DateTimeOffset.FromUnixTimeSeconds(1777391211).UtcDateTime;
+        bool updatedBeforeTallImplement = entry.LastFetched.Date < DateTimeOffset.FromUnixTimeSeconds(1777391211).UtcDateTime;
 
         return hasSquareArtwork && missingTallArtwork && updatedBeforeTallImplement;
     }
@@ -99,7 +99,6 @@ public partial class ArtworkService(
                 M3u8Url: m3U8Url ?? "NONE",
                 M3u8UrlTall: m3U8UrlTall ?? "NONE",
                 LastFetched: DateTime.UtcNow,
-                LastUpdated: DateTime.UtcNow,
                 DownloadCount: downloadCount,
                 SearchCount: searchCount
             );
