@@ -9,4 +9,5 @@
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - CACHE_FILE_PATH=/app/data/cache_database.json
+      - METADATA_RESOLUTION_CACHE_FILE_PATH=./data/cache_metadata_resolution.json
     restart: always
