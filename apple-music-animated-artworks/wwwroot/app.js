@@ -8,12 +8,10 @@ const ui = {
     rawLink: document.getElementById('rawLink'),
     historyContainer: document.getElementById('historyContainer'),
     historyList: document.getElementById('historyList'),
-    
     tabDetails: document.getElementById('tabDetails'),
     tabUrl: document.getElementById('tabUrl'),
     groupDetails: document.getElementById('groupDetails'),
     groupUrl: document.getElementById('groupUrl'),
-    
     downloadMp4Btn: document.getElementById('downloadMp4Btn'),
     downloadMp4BtnText: document.getElementById('downloadMp4BtnText'),
     downloadWebpBtn: document.getElementById('downloadWebpBtn'),
@@ -21,11 +19,15 @@ const ui = {
     resolutionSelect: document.getElementById('resolutionSelect'),
     webpQuality: document.getElementById('webpQuality'),
     webpQualityValue: document.getElementById('webpQualityValue'),
-    
     artworkMetadata: document.getElementById('artworkMetadata'),
     metaAlbum: document.getElementById('metaAlbum'),
     metaArtist: document.getElementById('metaArtist'),
-    cacheBadge: document.getElementById('cacheBadge')
+    cacheBadge: document.getElementById('cacheBadge'),
+    variantSelector: document.getElementById('variantSelector'),
+    variantSquareBtn: document.getElementById('variantSquareBtn'),
+    variantTallBtn: document.getElementById('variantTallBtn'),
+    coverVariantSelected: document.getElementById('coverVariantSelected'),
+    selectedVariantBadge: document.getElementById('selectedVariantBadge')
 };
 
 let state = {
@@ -34,7 +36,13 @@ let state = {
     historyHlsInstances: [],
     currentM3u8Url: null,
     currentAlbumName: null,
-    resolutionVariants: []
+    currentArtworkVariants: {
+        square: null,
+        tall: null
+    },
+    selectedArtworkVariant: 'square',
+    resolutionVariants: [],
+    resolutionLoadToken: 0
 };
 
 const { FFmpeg } = window.FFmpegWASM;
@@ -81,6 +89,112 @@ function updateMetadataUI(data) {
     }
 }
 
+function getArtworkVariantLabel(variant) {
+    return variant === 'tall' ? 'Tall Cover' : 'Square Cover';
+}
+
+function getArtworkVariantShortLabel(variant) {
+    return variant === 'tall' ? 'Tall' : 'Square';
+}
+
+function updateVariantBadge() {
+    if (ui.coverVariantSelected) {
+        ui.coverVariantSelected.textContent = getArtworkVariantShortLabel(state.selectedArtworkVariant);
+    }
+
+    if (ui.selectedVariantBadge) {
+        ui.selectedVariantBadge.textContent = getArtworkVariantLabel(state.selectedArtworkVariant);
+    }
+}
+
+function updatePreviewAspect(variant) {
+    if (!ui.videoContainer) {
+        return;
+    }
+
+    const isTall = variant === 'tall';
+    ui.videoContainer.classList.toggle('cover-frame-square', !isTall);
+    ui.videoContainer.classList.toggle('cover-frame-tall', isTall);
+}
+
+function updateVariantSelector() {
+    if (!ui.variantSelector) {
+        return;
+    }
+
+    const hasSquare = Boolean(state.currentArtworkVariants.square);
+    const hasTall = Boolean(state.currentArtworkVariants.tall);
+    const canSwitch = hasSquare && hasTall;
+
+    ui.variantSelector.classList.toggle('hidden', !canSwitch);
+
+    const activeButtonClass = 'variant-option variant-option-active rounded-lg px-3 py-2 text-left is-active';
+    const inactiveButtonClass = 'variant-option variant-option-inactive rounded-lg px-3 py-2 text-left';
+    const disabledButtonClass = 'variant-option variant-option-inactive rounded-lg px-3 py-2 text-left opacity-45 cursor-not-allowed';
+
+    if (ui.variantSquareBtn) {
+        ui.variantSquareBtn.disabled = !hasSquare;
+        ui.variantSquareBtn.className = hasSquare
+            ? (state.selectedArtworkVariant === 'square' ? activeButtonClass : inactiveButtonClass)
+            : disabledButtonClass;
+    }
+
+    if (ui.variantTallBtn) {
+        ui.variantTallBtn.disabled = !hasTall;
+        ui.variantTallBtn.className = hasTall
+            ? (state.selectedArtworkVariant === 'tall' ? activeButtonClass : inactiveButtonClass)
+            : disabledButtonClass;
+    }
+
+    updateVariantBadge();
+}
+
+async function selectArtworkVariant(variant, playPreview = true) {
+    const preferredVariant = state.currentArtworkVariants[variant] ? variant : (state.currentArtworkVariants.square ? 'square' : state.currentArtworkVariants.tall ? 'tall' : null);
+
+    if (!preferredVariant) {
+        return null;
+    }
+
+    const selectedUrl = state.currentArtworkVariants[preferredVariant];
+
+    if (state.selectedArtworkVariant === preferredVariant && state.currentM3u8Url === selectedUrl) {
+        updateVariantSelector();
+        updatePreviewAspect(preferredVariant);
+        return selectedUrl;
+    }
+
+    state.selectedArtworkVariant = preferredVariant;
+    state.currentM3u8Url = selectedUrl;
+
+    updateVariantSelector();
+    updatePreviewAspect(preferredVariant);
+
+    if (playPreview) {
+        playVideo(selectedUrl);
+    }
+
+    await loadResolutionOptions(selectedUrl);
+    return selectedUrl;
+}
+
+async function applyArtworkData(data, isCached = false) {
+    state.currentArtworkVariants = {
+        square: data.url ?? null,
+        tall: data.url_tall ?? null
+    };
+    state.currentAlbumName = data.album;
+
+    updateMetadataUI({
+        album: data.album,
+        artist: data.artist,
+        isCached
+    });
+
+    const preferredVariant = data.url ? 'square' : 'tall';
+    await selectArtworkVariant(preferredVariant, true);
+}
+
 function setResolutionOptions(options, selectedUrl) {
     ui.resolutionSelect.innerHTML = '';
 
@@ -98,6 +212,48 @@ function setResolutionOptions(options, selectedUrl) {
 
     if (!ui.resolutionSelect.value && options.length > 0) {
         ui.resolutionSelect.value = options[0].url;
+    }
+}
+
+async function loadResolutionOptions(masterUrl) {
+    const loadToken = ++state.resolutionLoadToken;
+    ui.resolutionSelect.innerHTML = '<option value="">Loading...</option>';
+    ui.resolutionSelect.disabled = true;
+
+    try {
+        const manifestText = await fetchText(masterUrl);
+        const hasMasterVariants = manifestText.includes('#EXT-X-STREAM-INF');
+
+        if (hasMasterVariants) {
+            const variants = parseMasterVariants(manifestText, masterUrl);
+            if (variants.length > 0) {
+                if (loadToken !== state.resolutionLoadToken) {
+                    return;
+                }
+
+                state.resolutionVariants = variants;
+                setResolutionOptions(variants, variants[0].url);
+                ui.resolutionSelect.disabled = false;
+                return;
+            }
+        }
+
+        if (loadToken !== state.resolutionLoadToken) {
+            return;
+        }
+
+        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
+        setResolutionOptions(state.resolutionVariants, masterUrl);
+        ui.resolutionSelect.disabled = true;
+    } catch (error) {
+        console.warn('Resolution parsing failed:', error);
+        if (loadToken !== state.resolutionLoadToken) {
+            return;
+        }
+
+        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
+        setResolutionOptions(state.resolutionVariants, masterUrl);
+        ui.resolutionSelect.disabled = true;
     }
 }
 
@@ -121,8 +277,6 @@ function parseMasterVariants(masterText, masterUrl) {
         const resolution = resolutionMatch ? resolutionMatch[1] : null;
         const bandwidth = bandwidthMatch ? Number(bandwidthMatch[1]) : 0;
         const url = new URL(nextLine, masterUrl).href;
-
-        let pixelCount = 0;
         if (resolution) {
             const [w, h] = resolution.toLowerCase().split('x').map(Number);
             pixelCount = (w || 0) * (h || 0);
@@ -160,6 +314,7 @@ async function fetchText(url) {
 }
 
 async function loadResolutionOptions(masterUrl) {
+    const loadToken = ++state.resolutionLoadToken;
     ui.resolutionSelect.innerHTML = '<option value="">Loading...</option>';
     ui.resolutionSelect.disabled = true;
 
@@ -170,6 +325,10 @@ async function loadResolutionOptions(masterUrl) {
         if (hasMasterVariants) {
             const variants = parseMasterVariants(manifestText, masterUrl);
             if (variants.length > 0) {
+                if (loadToken !== state.resolutionLoadToken) {
+                    return;
+                }
+
                 state.resolutionVariants = variants;
                 setResolutionOptions(variants, variants[0].url);
                 ui.resolutionSelect.disabled = false;
@@ -177,11 +336,19 @@ async function loadResolutionOptions(masterUrl) {
             }
         }
 
+        if (loadToken !== state.resolutionLoadToken) {
+            return;
+        }
+
         state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
         setResolutionOptions(state.resolutionVariants, masterUrl);
         ui.resolutionSelect.disabled = true;
     } catch (error) {
         console.warn('Resolution parsing failed:', error);
+        if (loadToken !== state.resolutionLoadToken) {
+            return;
+        }
+
         state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
         setResolutionOptions(state.resolutionVariants, masterUrl);
         ui.resolutionSelect.disabled = true;
@@ -213,6 +380,16 @@ function playVideo(url) {
 
 async function fetchSystemStatus() {
     const statusEl = document.getElementById('systemStatus');
+if (ui.variantSquareBtn) {
+    ui.variantSquareBtn.addEventListener('click', () => {
+        void selectArtworkVariant('square', true);
+    });
+}
+if (ui.variantTallBtn) {
+    ui.variantTallBtn.addEventListener('click', () => {
+        void selectArtworkVariant('tall', true);
+    });
+}
     const statusPing = document.getElementById('statusPing');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
@@ -307,11 +484,12 @@ async function fetchGlobalHistory() {
         });
 
         historyData.forEach((item, index) => {
+            const previewUrl = item.url || item.url_tall || '';
             const li = document.createElement('li');
             li.className = 'glass-panel p-2 rounded-lg history-item flex items-center gap-3 transition-colors cursor-pointer hover:bg-white/5';
             li.innerHTML = `
                 <div class="w-12 h-12 flex-shrink-0 rounded bg-gray-800 border border-gray-700 overflow-hidden relative shadow-inner">
-                    <video id="hist-vid-${index}" data-index="${index}" data-url="${item.url}" class="w-full h-full object-cover" loop muted playsinline></video>
+                    <video id="hist-vid-${index}" data-index="${index}" data-url="${previewUrl}" class="w-full h-full object-cover" loop muted playsinline></video>
                 </div>
                 <div class="truncate flex-grow">
                     <p class="font-bold text-sm text-gray-200 truncate">${item.album}</p>
@@ -326,17 +504,7 @@ async function fetchGlobalHistory() {
                 document.getElementById('artistInput').value = item.artist;
                 document.getElementById('albumInput').value = item.album;
 
-                state.currentM3u8Url = item.url;
-                state.currentAlbumName = item.album;
-
-                updateMetadataUI({
-                    album: item.album,
-                    artist: item.artist,
-                    isCached: true
-                });
-                loadResolutionOptions(item.url);
-
-                playVideo(item.url);
+                void applyArtworkData(item, true);
                 
                 requestAnimationFrame(() => {
                     ui.videoContainer.scrollIntoView({
@@ -456,7 +624,8 @@ async function downloadArtwork(format) {
     const isWebp = format === 'webp';
     const buttonLabel = isWebp ? ui.downloadWebpBtnText : ui.downloadMp4BtnText;
     const defaultLabel = isWebp ? 'WebP' : 'MP4';
-    const outputFileName = isWebp ? 'output.webp' : 'output.mp4';
+    const variantSuffix = state.selectedArtworkVariant === 'tall' ? 'tall' : 'square';
+    const outputFileName = isWebp ? `output_${variantSuffix}.webp` : `output_${variantSuffix}.mp4`;
 
     try {
         setDownloadButtonsBusy(true);
@@ -514,7 +683,7 @@ async function downloadArtwork(format) {
         const a = document.createElement('a');
         a.href = downloadUrl;
         const safeName = sanitizeFileName(state.currentAlbumName);
-        a.download = `${safeName}_artwork.${format}`;
+        a.download = `${safeName}_artwork_${variantSuffix}.${format}`;
         a.click();
 
         URL.revokeObjectURL(downloadUrl);
@@ -551,6 +720,16 @@ if (ui.downloadMp4Btn) {
 }
 if (ui.downloadWebpBtn) {
     ui.downloadWebpBtn.addEventListener('click', () => downloadArtwork('webp'));
+}
+if (ui.variantSquareBtn) {
+    ui.variantSquareBtn.addEventListener('click', () => {
+        void selectArtworkVariant('square', true);
+    });
+}
+if (ui.variantTallBtn) {
+    ui.variantTallBtn.addEventListener('click', () => {
+        void selectArtworkVariant('tall', true);
+    });
 }
 if (ui.webpQuality && ui.webpQualityValue) {
     ui.webpQualityValue.textContent = ui.webpQuality.value;
@@ -596,12 +775,7 @@ ui.form.addEventListener('submit', async (e) => {
 
         const data = await response.json();
         
-        state.currentM3u8Url = data.url;
-        state.currentAlbumName = data.album;
-        
-        playVideo(data.url);
-        updateMetadataUI(data);
-        await loadResolutionOptions(data.url);
+        await applyArtworkData(data, data.isCached);
         fetchGlobalHistory();
 
     } catch (error) {

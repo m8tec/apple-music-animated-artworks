@@ -122,9 +122,15 @@ try
         {
             await cacheService.IncrementSearchCountAsync(entry);
 
-            if (entry.M3u8Url != "NONE")
+            if ((entry.M3u8Url != null && entry.M3u8Url != "NONE") || (entry.M3u8UrlTall != null && entry.M3u8UrlTall != "NONE"))
             {
-                return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+                return Results.Ok(new { 
+                    url = entry.M3u8Url == "NONE" ? null : entry.M3u8Url, 
+                    url_tall = entry.M3u8UrlTall == "NONE" ? null : entry.M3u8UrlTall, 
+                    artist = entry.Artist, 
+                    album = entry.Album, 
+                    isCached 
+                });
             }
         }
 
@@ -149,9 +155,15 @@ try
         {
             await cacheService.IncrementSearchCountAsync(entry);
             
-            if (entry.M3u8Url != "NONE")
+            if ((entry.M3u8Url != null && entry.M3u8Url != "NONE") || (entry.M3u8UrlTall != null && entry.M3u8UrlTall != "NONE"))
             {
-                return Results.Ok(new { url = entry.M3u8Url, artist = entry.Artist, album = entry.Album, isCached });
+                return Results.Ok(new { 
+                    url = entry.M3u8Url == "NONE" ? null : entry.M3u8Url, 
+                    url_tall = entry.M3u8UrlTall == "NONE" ? null : entry.M3u8UrlTall, 
+                    artist = entry.Artist, 
+                    album = entry.Album, 
+                    isCached 
+                });
             }
         }
     
@@ -176,7 +188,8 @@ try
         {
             artist = x.Artist,
             album = x.Album,
-            url = x.M3u8Url,
+            url = x.M3u8Url == "NONE" ? null : x.M3u8Url,
+            url_tall = x.M3u8UrlTall == "NONE" ? null : x.M3u8UrlTall,
             fetchedAt = x.LastFetched
         });
     

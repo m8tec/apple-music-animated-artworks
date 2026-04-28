@@ -82,7 +82,7 @@ public class JsonCacheService
                 return artistMatch && albumMatch;
             })
             // prefer existing m3u8-urls
-            .OrderByDescending(x => x.M3u8Url != null && x.M3u8Url != "NONE")
+            .OrderByDescending(x => (x.M3u8Url != null && x.M3u8Url != "NONE") || (x.M3u8UrlTall != null && x.M3u8UrlTall != "NONE"))
             // prefer regular cache entries over negative search markers when both match.
             .ThenBy(x => IsNegativeSearchKey(x.AppleMusicUrl))
             // prefer shorter album names, as they are more likely to be the original release instead of
@@ -103,7 +103,9 @@ public class JsonCacheService
             Artist: artist,
             Album: album,
             M3u8Url: "NONE",
+            M3u8UrlTall: "NONE",
             LastFetched: System.DateTime.UtcNow,
+            LastUpdated: System.DateTime.UtcNow,
             SearchCount: 1
         );
 
@@ -189,7 +191,7 @@ public class JsonCacheService
     public IEnumerable<ArtworkCacheEntry> GetRecentSearches(int limit = 12)
     {
         return _cache.Values
-            .Where(x => x.M3u8Url != null && x.M3u8Url != "NONE")
+            .Where(x => (x.M3u8Url != null && x.M3u8Url != "NONE") || (x.M3u8UrlTall != null && x.M3u8UrlTall != "NONE"))
             .OrderByDescending(x => x.LastFetched)
             .Take(limit);
     }

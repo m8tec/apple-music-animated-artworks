@@ -7,7 +7,8 @@ public enum AppleMusicPageParseStatus
 
 public readonly record struct AppleMusicPageParseResult(
     AppleMusicPageParseStatus Status,
-    string? M3u8Url = null,
+    string? UrlSquare = null,
+    string? UrlTall = null,
     string Artist = "Unknown Artist",
     string Album = "Unknown Album"
 );
