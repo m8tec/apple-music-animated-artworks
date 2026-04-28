@@ -105,6 +105,7 @@ public class JsonCacheService
             M3u8Url: "NONE",
             M3u8UrlTall: "NONE",
             LastFetched: System.DateTime.UtcNow,
+            LastUpdated: System.DateTime.UtcNow,
             SearchCount: 1
         );
 

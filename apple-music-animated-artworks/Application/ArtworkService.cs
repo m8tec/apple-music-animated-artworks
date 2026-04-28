@@ -17,6 +17,15 @@ public partial class ArtworkService(
     [GeneratedRegex(@"album/.*/(\d+)|album/(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex AlbumIdRegex();
 
+    private static bool NeedsTallArtworkRefresh(ArtworkCacheEntry entry)
+    {
+        bool hasSquareArtwork = !string.IsNullOrWhiteSpace(entry.M3u8Url) && entry.M3u8Url != "NONE";
+        bool missingTallArtwork = string.IsNullOrWhiteSpace(entry.M3u8UrlTall);
+        bool updatedBeforeTallImplement = entry.LastUpdated.Date < DateTimeOffset.FromUnixTimeSeconds(1777391211).UtcDateTime;
+
+        return hasSquareArtwork && missingTallArtwork && updatedBeforeTallImplement;
+    }
+
     private string NormalizeUrl(string url)
     {
         var match = AlbumIdRegex().Match(url);
@@ -37,13 +46,16 @@ public partial class ArtworkService(
         string normalizedUrl = NormalizeUrl(appleMusicUrl);
 
         ArtworkCacheEntry? cachedEntry = cache.GetByUrl(normalizedUrl);
-        if (cachedEntry != null)
+        if (cachedEntry != null && !NeedsTallArtworkRefresh(cachedEntry))
         {
             Log.Information("Cache hit (by URL): {AppleMusicUrl}", normalizedUrl);
             return (cachedEntry, true);
         }
 
-        Log.Information("Cache miss (by URL): {AppleMusicUrl}", normalizedUrl);
+        Log.Information(
+            cachedEntry != null
+                ? "Cache entry is missing tall artwork (by URL): {AppleMusicUrl}"
+                : "Cache miss (by URL): {AppleMusicUrl}", normalizedUrl);
 
         SemaphoreSlim semaphore = locker.GetLock(normalizedUrl);
         await semaphore.WaitAsync(ct);
@@ -51,7 +63,7 @@ public partial class ArtworkService(
         try
         {
             cachedEntry = cache.GetByUrl(normalizedUrl);
-            if (cachedEntry != null)
+            if (cachedEntry != null && !NeedsTallArtworkRefresh(cachedEntry))
             {
                 Log.Information("Cache hit after lock (by URL): {AppleMusicUrl}", normalizedUrl);
                 return (cachedEntry, true);
@@ -61,28 +73,35 @@ public partial class ArtworkService(
 
             if (parseResult.Status == AppleMusicPageParseStatus.RateLimited)
             {
-                Log.Information("Album page request was rate limited for URL: {AppleMusicUrl}. Skipping cache save.", normalizedUrl);
-                return (null, false);
+                Log.Information("Album page request was rate limited for URL: {AppleMusicUrl}.", normalizedUrl);
+
+                // Return cached entry if available, even if it may be stale.
+                return (cachedEntry, cachedEntry != null);
             }
 
             if (parseResult.Status == AppleMusicPageParseStatus.Error)
             {
-                Log.Information("Album page request failed for URL: {AppleMusicUrl}. Skipping cache save.", normalizedUrl);
+                Log.Information("Album page request failed for URL: {AppleMusicUrl}.", normalizedUrl);
                 return (null, false);
             }
 
-            string? m3u8Url = parseResult.UrlSquare;
-            string? m3u8UrlTall = parseResult.UrlTall;
+            string? m3U8Url = parseResult.UrlSquare;
+            string? m3U8UrlTall = parseResult.UrlTall;
             string artist = parseResult.Artist;
             string album = parseResult.Album;
+            int downloadCount = cachedEntry?.DownloadCount ?? 0;
+            int searchCount = cachedEntry?.SearchCount ?? 0;
 
             ArtworkCacheEntry newEntry = new(
                 AppleMusicUrl: normalizedUrl,
                 Artist: artist,
                 Album: album,
-                M3u8Url: m3u8Url ?? "NONE",
-                M3u8UrlTall: m3u8UrlTall ?? "NONE",
-                LastFetched: DateTime.UtcNow
+                M3u8Url: m3U8Url ?? "NONE",
+                M3u8UrlTall: m3U8UrlTall ?? "NONE",
+                LastFetched: DateTime.UtcNow,
+                LastUpdated: DateTime.UtcNow,
+                DownloadCount: downloadCount,
+                SearchCount: searchCount
             );
 
             await cache.SaveEntryAsync(newEntry);
@@ -90,7 +109,7 @@ public partial class ArtworkService(
                 normalizedUrl,
                 artist,
                 album,
-                m3u8Url != null || m3u8UrlTall != null);
+                m3U8Url != null || m3U8UrlTall != null);
 
             return (newEntry, false);
         }
@@ -106,30 +125,32 @@ public partial class ArtworkService(
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
         if (cachedEntry != null)
         {
-            if (!cache.IsNegativeSearchEntry(cachedEntry))
+            if (cache.IsNegativeSearchEntry(cachedEntry))
             {
-                Log.Information("Cache hit (by metadata): Artist={Artist}, Album={Album} resolved to {CachedArtist} - {CachedAlbum}",
-                    artist,
-                    album,
-                    cachedEntry.Artist,
-                    cachedEntry.Album);
+                if (DateTime.UtcNow - cachedEntry.LastFetched <= NegativeSearchCacheTtl)
+                {
+                    Log.Information("Negative cache hit (by metadata): Artist={Artist}, Album={Album}.", artist, album);
+                    return (cachedEntry, true);
+                }
+
+                Log.Information("Negative cache expired (by metadata): Artist={Artist}, Album={Album}.", artist, album);
+            }
+            else if (!NeedsTallArtworkRefresh(cachedEntry))
+            {
+                Log.Information("Cache hit (by metadata): Artist={Artist}, Album={Album}.", artist, album);
                 return (cachedEntry, true);
             }
-
-            if (DateTime.UtcNow - cachedEntry.LastFetched <= NegativeSearchCacheTtl)
+            else
             {
-                Log.Information("Negative cache hit (by metadata): Artist={Artist}, Album={Album}. Skipping external search.", artist, album);
-                return (cachedEntry, true);
+                Log.Information("Cache entry is missing tall artwork (by metadata): Artist={Artist}, Album={Album}.", artist, album);
             }
-
-            Log.Information("Negative cache expired (by metadata): Artist={Artist}, Album={Album}. Performing external search.", artist, album);
         }
         else
         {
             Log.Information("Cache miss (by metadata): Artist={Artist}, Album={Album}", artist, album);
         }
 
-        Log.Information("Triggering web search: Artist={Artist}, Album={Album}, Title={Title}", artist, album, title ?? "N/A");
+        Log.Information("Triggering web search: Artist={Artist}, Album={Album}, Title={Title}", artist, album, title ?? "");
 
         AppleMusicWebSearchResult webSearchResult = await appleMusicClient.GetAppleMusicUrlViaWebSearchAsync(artist, album, title, ct);
 
@@ -143,7 +164,8 @@ public partial class ArtworkService(
         if (webSearchResult.Status == AppleMusicWebSearchStatus.RateLimited)
         {
             Log.Information("Search was rate limited for Artist={Artist}, Album={Album}", artist, album);
-            return (null, false);
+            // Return cached entry if available, even if it may be stale.
+            return (cachedEntry, cachedEntry != null);
         }
 
         if (webSearchResult.Status == AppleMusicWebSearchStatus.Error)
