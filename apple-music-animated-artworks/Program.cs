@@ -33,7 +33,10 @@ try
 
     var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
     builder.Services.AddSingleton(new JsonCacheService(cachePath));
-    
+
+    var metadataResolutionCachePath = builder.Configuration["METADATA_RESOLUTION_CACHE_FILE_PATH"] ?? "metadata_resolution_cache.json";
+    builder.Services.AddSingleton(new MetadataResolutionCache(metadataResolutionCachePath));
+
     builder.Services.AddSingleton<SystemStatusService>();
     
     builder.Services.AddSingleton<KeyedLocker>();

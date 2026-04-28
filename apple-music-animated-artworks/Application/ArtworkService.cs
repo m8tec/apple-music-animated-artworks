@@ -10,6 +10,7 @@ namespace AnimatedArtworks.Application;
 public partial class ArtworkService(
     IAppleMusicClient appleMusicClient,
     JsonCacheService cache,
+    MetadataResolutionCache metadataResolutionCache,
     KeyedLocker locker)
 {
     private static readonly TimeSpan NegativeSearchCacheTtl = TimeSpan.FromDays(30);
@@ -48,14 +49,14 @@ public partial class ArtworkService(
         ArtworkCacheEntry? cachedEntry = cache.GetByUrl(normalizedUrl);
         if (cachedEntry != null && !NeedsTallArtworkRefresh(cachedEntry))
         {
-            Log.Information("Cache hit (by URL): {AppleMusicUrl}", normalizedUrl);
+            Log.Information("URL cache hit: {AppleMusicUrl}", normalizedUrl);
             return (cachedEntry, true);
         }
 
         Log.Information(
             cachedEntry != null
-                ? "Cache entry is missing tall artwork (by URL): {AppleMusicUrl}"
-                : "Cache miss (by URL): {AppleMusicUrl}", normalizedUrl);
+                ? "Cache entry is missing tall artwork: {AppleMusicUrl}"
+                : "URL cache miss: {AppleMusicUrl}", normalizedUrl);
 
         SemaphoreSlim semaphore = locker.GetLock(normalizedUrl);
         await semaphore.WaitAsync(ct);
@@ -65,7 +66,7 @@ public partial class ArtworkService(
             cachedEntry = cache.GetByUrl(normalizedUrl);
             if (cachedEntry != null && !NeedsTallArtworkRefresh(cachedEntry))
             {
-                Log.Information("Cache hit after lock (by URL): {AppleMusicUrl}", normalizedUrl);
+                Log.Information("URL cache hit after lock: {AppleMusicUrl}", normalizedUrl);
                 return (cachedEntry, true);
             }
 
@@ -104,7 +105,7 @@ public partial class ArtworkService(
             );
 
             await cache.SaveEntryAsync(newEntry);
-            Log.Information("Saved cache entry (by URL): {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
+            Log.Information("Saved URL cache entry: {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
                 normalizedUrl,
                 artist,
                 album,
@@ -121,28 +122,38 @@ public partial class ArtworkService(
     public async Task<(ArtworkCacheEntry? Entry, bool IsCached)> GetArtworkByDetailsAsync(string artist, string album, string? title = null,
         CancellationToken ct = default)
     {
+        MetadataResolutionLookup lookup = metadataResolutionCache.GetLookup(artist, album, NegativeSearchCacheTtl);
+
+        if (lookup.Status == MetadataResolutionStatus.NoMatch)
+        {
+            Log.Information("Metadata resolution no-match cache hit: Artist={Artist}, Album={Album}.", artist, album);
+            return (null, false);
+        }
+
+        if (lookup.Status == MetadataResolutionStatus.Resolved && !string.IsNullOrWhiteSpace(lookup.ResolvedAppleMusicUrl))
+        {
+            Log.Information("Metadata resolution cache hit: Artist={Artist}, Album={Album} -> {AppleMusicUrl}", artist, album, lookup.ResolvedAppleMusicUrl);
+
+            (ArtworkCacheEntry? resolvedEntry, bool resolvedIsCached) = await GetArtworkByUrlAsync(lookup.ResolvedAppleMusicUrl, ct);
+            if (resolvedEntry != null)
+            {
+                return (resolvedEntry, resolvedIsCached);
+            }
+
+            Log.Information("Metadata resolution cache entry is stale. Removing alias for Artist={Artist}, Album={Album}", artist, album);
+            await metadataResolutionCache.RemoveResolvedUrlAsync(artist, album);
+        }
+
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
         if (cachedEntry != null)
         {
-            if (cache.IsNegativeSearchEntry(cachedEntry))
-            {
-                if (DateTime.UtcNow - cachedEntry.LastFetched <= NegativeSearchCacheTtl)
-                {
-                    Log.Information("Negative cache hit (by metadata): Artist={Artist}, Album={Album}.", artist, album);
-                    return (cachedEntry, true);
-                }
-
-                Log.Information("Negative cache expired (by metadata): Artist={Artist}, Album={Album}.", artist, album);
-            }
-            else if (!NeedsTallArtworkRefresh(cachedEntry))
+            if (!NeedsTallArtworkRefresh(cachedEntry))
             {
                 Log.Information("Cache hit (by metadata): Artist={Artist}, Album={Album}.", artist, album);
                 return (cachedEntry, true);
             }
-            else
-            {
-                Log.Information("Cache entry is missing tall artwork (by metadata): Artist={Artist}, Album={Album}.", artist, album);
-            }
+
+            Log.Information("Cache entry is missing tall artwork (by metadata): Artist={Artist}, Album={Album}.", artist, album);
         }
         else
         {
@@ -155,8 +166,8 @@ public partial class ArtworkService(
 
         if (webSearchResult.Status == AppleMusicWebSearchStatus.NoMatch)
         {
-            await cache.SaveNegativeSearchResultAsync(artist, album);
-            Log.Information("Web search returned no match. Negative cache saved for Artist={Artist}, Album={Album}", artist, album);
+            await metadataResolutionCache.SaveNoMatchAsync(artist, album);
+            Log.Information("Search returned no match for Artist={Artist}, Album={Album}", artist, album);
             return (null, false);
         }
 
@@ -180,6 +191,7 @@ public partial class ArtworkService(
         }
 
         Log.Information("Search resolved URL: {AppleMusicUrl}", webSearchResult.Url);
+        await metadataResolutionCache.SaveResolvedUrlAsync(artist, album, webSearchResult.Url);
 
         return await GetArtworkByUrlAsync(webSearchResult.Url, ct);
     }
