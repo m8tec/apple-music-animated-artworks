@@ -6,7 +6,7 @@ public class SystemStatusService
 {
     private static readonly TimeSpan RateLimitBackoff = TimeSpan.FromHours(1);
 
-    public bool IsRateLimited { get; private set; } = false;
+    public bool IsRateLimited { get; private set; }
     public DateTime LastErrorTime { get; private set; } = DateTime.MinValue;
 
     public void ReportRateLimit()

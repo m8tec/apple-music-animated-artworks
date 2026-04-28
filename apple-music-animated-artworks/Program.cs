@@ -174,10 +174,10 @@ try
         DownloadReportRequest req, 
         JsonCacheService cacheService) => 
     {
-        if (string.IsNullOrWhiteSpace(req.M3u8Url))
+        if (string.IsNullOrWhiteSpace(req.M3U8Url))
             return Results.BadRequest();
 
-        await cacheService.IncrementDownloadCountAsync(req.M3u8Url);
+        await cacheService.IncrementDownloadCountAsync(req.M3U8Url);
         
         return Results.Ok();
     });
@@ -207,4 +207,4 @@ finally
     Log.CloseAndFlush();
 }
 
-public record DownloadReportRequest(string M3u8Url);
+public record DownloadReportRequest(string M3U8Url);

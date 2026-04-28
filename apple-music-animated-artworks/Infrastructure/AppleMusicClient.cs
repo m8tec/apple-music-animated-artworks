@@ -16,9 +16,6 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     private partial Regex StorefrontAlbumRegex();
     private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
 
-    [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
-    private partial Regex JsonLdRegex();
-
     [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
     private partial Regex JsAssetRegex();
 
@@ -28,7 +25,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/([^/""?]+)/\d+)""", RegexOptions.IgnoreCase)]
     private partial Regex AppleMusicLinkRegex();
 
-    [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("[^a-z0-9]+", RegexOptions.IgnoreCase)]
     private static partial Regex NonAlphanumericRegex();
 
     private const string AppleMusicSearchUrl = "https://music.apple.com/us/search?term=";

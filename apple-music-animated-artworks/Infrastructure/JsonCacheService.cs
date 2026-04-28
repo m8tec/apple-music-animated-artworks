@@ -12,7 +12,7 @@ namespace AnimatedArtworks.Infrastructure;
 public class JsonCacheService
 {
     private const string NegativeSearchPrefix = "search-miss:";
-    private string FilePath { get; set; }
+    private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
@@ -111,12 +111,12 @@ public class JsonCacheService
         await SaveEntryAsync(entry);
     }
     
-    public async Task IncrementDownloadCountAsync(string m3u8Url)
+    public async Task IncrementDownloadCountAsync(string m3U8Url)
     {
         await _fileLock.WaitAsync();
         try
         {
-            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3u8Url);
+            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3U8Url);
             
             if (target.Key != null)
             {
