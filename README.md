@@ -9,17 +9,17 @@
 
 A lightweight tool to fetch and display Apple Music’s animated album covers (HLS/m3u8). Supports both square and tall cover variants, as well as playlist artworks. Built with .NET 10 and a minimal Tailwind CSS frontend.
 
-<table align="center" style="margin-top: 16px; width: 100%;">
+<table align="center" style="margin-top: 16px; width: 70%;">
 	<tr>
 		<td align="center" width="50%"><strong>Square Cover</strong></td>
 		<td align="center" width="50%"><strong>Tall Cover</strong></td>
 	</tr>
 	<tr>
 		<td align="center">
-			<video src=".github/assets/living_things_artwork_square.mp4" autoplay loop muted playsinline controls style="max-width: 100%; border-radius: 8px;"></video>
+			<img src=".github/assets/living_things_artwork_square.gif" alt="Square cover preview" style="max-width: 100%; border-radius: 8px;">
 		</td>
 		<td align="center">
-			<video src=".github/assets/plastic_beach_deluxe_version_artwork_tall.mp4" autoplay loop muted playsinline controls style="max-width: 100%; border-radius: 8px;"></video>
+			<img src=".github/assets/plastic_beach_deluxe_version_artwork_tall.gif" alt="Tall cover preview" style="max-width: 100%; border-radius: 8px;">
 		</td>
 	</tr>
 </table>
