@@ -9,5 +9,5 @@ public interface IAppleMusicClient
     Task<AppleMusicWebSearchResult> GetAppleMusicUrlViaWebSearchAsync(string artist, string album, string? title = null,
         CancellationToken ct = default);
     
-    Task<(string? M3u8Url, string? M3u8UrlTall, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct);
+    Task<AppleMusicPageParseResult> ParseAppleMusicPageAsync(string url, CancellationToken ct);
 }

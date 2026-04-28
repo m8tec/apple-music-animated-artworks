@@ -14,6 +14,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 {
     [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase)]
     private partial Regex StorefrontAlbumRegex();
+    private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
+
+    [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private partial Regex JsonLdRegex();
 
     [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
     private partial Regex JsAssetRegex();
@@ -39,9 +43,22 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         string searchUrl = AppleMusicSearchUrl + query;
 
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping search request for {SearchUrl}", searchUrl);
+            return new(AppleMusicWebSearchStatus.RateLimited);
+        }
+
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try
         {
-            Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping search request for {SearchUrl}", searchUrl);
+                return new(AppleMusicWebSearchStatus.RateLimited);
+            }
+
+            Log.Information("Outgoing search request: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
             
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -85,6 +102,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         {
             Log.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
             return new(AppleMusicWebSearchStatus.Error);
+        }
+        finally
+        {
+            GlobalAppleMusicRequestLock.Release();
         }
     }
 
@@ -196,36 +217,47 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         return null;
     }
 
-    public async Task<(string? M3u8Url, string? M3u8UrlTall, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct)
+    public async Task<AppleMusicPageParseResult> ParseAppleMusicPageAsync(string url, CancellationToken ct)
     {
-        string artistName = "Unknown Artist";
-        string albumName = "Unknown Album";
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping album page request for {Url}", url);
+            return new(AppleMusicPageParseStatus.RateLimited);
+        }
 
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try 
         {
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping album page request for {Url}", url);
+                return new(AppleMusicPageParseStatus.RateLimited);
+            }
+
             var match = StorefrontAlbumRegex().Match(url);
-            if (!match.Success) return (null, null, artistName, albumName);
+            if (!match.Success) return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
 
             string storefront = !string.IsNullOrEmpty(match.Groups[1].Value) ? match.Groups[1].Value : "us";
             string albumId = match.Groups[2].Value;
 
             string? token = await GetBearerTokenAsync(url, ct);
-            if (token == null) return (null, null, artistName, albumName);
+            if (token == null) return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
 
             string apiUrl = $"https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{albumId}?extend=editorialVideo&platform=web";
-            
+
             using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
             request.Headers.Add("Authorization", $"Bearer {token}");
             request.Headers.Add("Origin", "https://music.apple.com");
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
+            Log.Information("Outgoing request to album page: {Url}", apiUrl);
             var response = await httpClient.SendAsync(request, ct);
             
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit while calling AMP API: {StatusCode}", response.StatusCode);
                 statusService.ReportRateLimit();
-                return (null, null, artistName, albumName);
+                return new(AppleMusicPageParseStatus.RateLimited);
             }
 
             response.EnsureSuccessStatusCode();
@@ -237,29 +269,37 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             var attrs = json?["data"]?[0]?["attributes"];
             if (attrs != null)
             {
+                string artistName = "Unknown Artist";
+                string albumName = "Unknown Album";
                 if (attrs["artistName"] != null) artistName = attrs["artistName"]!.ToString();
                 if (attrs["name"] != null) albumName = attrs["name"]!.ToString();
-                
+
+                string? urlSquare = null;
+                string? urlTall = null;
                 var videos = attrs["editorialVideo"];
                 if (videos != null)
                 {
-                    string? urlSquare = videos["motionDetailSquare"]?["video"]?.ToString();
-                    string? urlTall = videos["motionDetailTall"]?["video"]?.ToString();
-                    return (urlSquare, urlTall, artistName, albumName);
+                    urlSquare = videos["motionDetailSquare"]?["video"]?.ToString();
+                    urlTall = videos["motionDetailTall"]?["video"]?.ToString();
                 }
+
+                return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Success, urlSquare, urlTall, artistName, albumName);
             }
 
-            return (null, null, artistName, albumName);
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
         }
         catch (HttpRequestException ex)
         {
             Log.Error("Network error in ParseAppleMusicPageAsync: {Message}", ex.Message);
-            return (null, null, artistName, albumName);
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
         }
         catch (Exception ex)
         {
             Log.Error("Unexpected error in ParseAppleMusicPageAsync: {Message}", ex.Message);
-            return (null, null, artistName, albumName);
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
+        }
+        finally {
+            GlobalAppleMusicRequestLock.Release();
         }
     }
 }
