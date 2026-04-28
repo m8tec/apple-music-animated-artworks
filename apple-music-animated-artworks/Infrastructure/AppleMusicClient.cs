@@ -14,6 +14,9 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 {
     [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase)]
     private partial Regex StorefrontAlbumRegex();
+
+    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
+    private partial Regex StorefrontPlaylistRegex();
     private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
 
     [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
@@ -231,16 +234,15 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                 return new(AppleMusicPageParseStatus.RateLimited);
             }
 
-            var match = StorefrontAlbumRegex().Match(url);
-            if (!match.Success) return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
-
-            string storefront = !string.IsNullOrEmpty(match.Groups[1].Value) ? match.Groups[1].Value : "us";
-            string albumId = match.Groups[2].Value;
+            if (!TryParseCatalogTarget(url, out string storefront, out string resourceType, out string resourceId))
+            {
+                return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
+            }
 
             string? token = await GetBearerTokenAsync(url, ct);
             if (token == null) return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
 
-            string apiUrl = $"https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{albumId}?extend=editorialVideo&platform=web";
+            string apiUrl = $"https://amp-api.music.apple.com/v1/catalog/{storefront}/{resourceType}/{resourceId}?extend=editorialVideo&platform=web";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
             request.Headers.Add("Authorization", $"Bearer {token}");
@@ -266,10 +268,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             var attrs = json?["data"]?[0]?["attributes"];
             if (attrs != null)
             {
-                string artistName = "Unknown Artist";
-                string albumName = "Unknown Album";
-                if (attrs["artistName"] != null) artistName = attrs["artistName"]!.ToString();
-                if (attrs["name"] != null) albumName = attrs["name"]!.ToString();
+                string artistName = attrs["artistName"]?.ToString()
+                                    ?? attrs["curatorName"]?.ToString()
+                                    ?? "Unknown Artist";
+                string albumName = attrs["name"]?.ToString() ?? "Unknown Album";
 
                 string? urlSquare = null;
                 string? urlTall = null;
@@ -298,5 +300,32 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         finally {
             GlobalAppleMusicRequestLock.Release();
         }
+    }
+
+    private bool TryParseCatalogTarget(string url, out string storefront, out string resourceType, out string resourceId)
+    {
+        storefront = "us";
+        resourceType = string.Empty;
+        resourceId = string.Empty;
+
+        Match albumMatch = StorefrontAlbumRegex().Match(url);
+        if (albumMatch.Success)
+        {
+            storefront = !string.IsNullOrEmpty(albumMatch.Groups[1].Value) ? albumMatch.Groups[1].Value : "us";
+            resourceType = "albums";
+            resourceId = albumMatch.Groups[2].Value;
+            return true;
+        }
+
+        Match playlistMatch = StorefrontPlaylistRegex().Match(url);
+        if (playlistMatch.Success)
+        {
+            storefront = !string.IsNullOrEmpty(playlistMatch.Groups[1].Value) ? playlistMatch.Groups[1].Value : "us";
+            resourceType = "playlists";
+            resourceId = playlistMatch.Groups[2].Value;
+            return true;
+        }
+
+        return false;
     }
 }

@@ -15,8 +15,11 @@ public partial class ArtworkService(
 {
     private static readonly TimeSpan NegativeSearchCacheTtl = TimeSpan.FromDays(30);
 
-    [GeneratedRegex(@"album/.*/(\d+)|album/(\d+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex AlbumIdRegex();
+
+    [GeneratedRegex(@"playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex PlaylistIdRegex();
 
     private static bool NeedsTallArtworkRefresh(ArtworkCacheEntry entry)
     {
@@ -29,15 +32,20 @@ public partial class ArtworkService(
 
     private string NormalizeUrl(string url)
     {
-        var match = AlbumIdRegex().Match(url);
-        if (match.Success)
+        var albumMatch = AlbumIdRegex().Match(url);
+        if (albumMatch.Success)
         {
-            var id = !string.IsNullOrEmpty(match.Groups[1].Value) 
-                     ? match.Groups[1].Value 
-                     : match.Groups[2].Value;
-            
+            var id = albumMatch.Groups[1].Value;
             return $"https://music.apple.com/album/{id}";
         }
+
+        var playlistMatch = PlaylistIdRegex().Match(url);
+        if (playlistMatch.Success)
+        {
+            var id = playlistMatch.Groups[1].Value;
+            return $"https://music.apple.com/playlist/{id}";
+        }
+
         return url.ToLowerInvariant().Trim();
     }
 
