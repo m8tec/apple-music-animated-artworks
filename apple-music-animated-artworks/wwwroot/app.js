@@ -161,6 +161,12 @@ async function selectArtworkVariant(variant, playPreview = true) {
     if (state.selectedArtworkVariant === preferredVariant && state.currentM3u8Url === selectedUrl) {
         updateVariantSelector();
         updatePreviewAspect(preferredVariant);
+
+        if (playPreview) {
+            playVideo(selectedUrl);
+        }
+
+        await loadResolutionOptions(selectedUrl);
         return selectedUrl;
     }
 
@@ -311,48 +317,6 @@ async function fetchText(url) {
         throw new Error('Failed to load playlist.');
     }
     return response.text();
-}
-
-async function loadResolutionOptions(masterUrl) {
-    const loadToken = ++state.resolutionLoadToken;
-    ui.resolutionSelect.innerHTML = '<option value="">Loading...</option>';
-    ui.resolutionSelect.disabled = true;
-
-    try {
-        const manifestText = await fetchText(masterUrl);
-        const hasMasterVariants = manifestText.includes('#EXT-X-STREAM-INF');
-
-        if (hasMasterVariants) {
-            const variants = parseMasterVariants(manifestText, masterUrl);
-            if (variants.length > 0) {
-                if (loadToken !== state.resolutionLoadToken) {
-                    return;
-                }
-
-                state.resolutionVariants = variants;
-                setResolutionOptions(variants, variants[0].url);
-                ui.resolutionSelect.disabled = false;
-                return;
-            }
-        }
-
-        if (loadToken !== state.resolutionLoadToken) {
-            return;
-        }
-
-        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
-        setResolutionOptions(state.resolutionVariants, masterUrl);
-        ui.resolutionSelect.disabled = true;
-    } catch (error) {
-        console.warn('Resolution parsing failed:', error);
-        if (loadToken !== state.resolutionLoadToken) {
-            return;
-        }
-
-        state.resolutionVariants = [{ url: masterUrl, label: 'Source stream' }];
-        setResolutionOptions(state.resolutionVariants, masterUrl);
-        ui.resolutionSelect.disabled = true;
-    }
 }
 
 function playVideo(url) {
