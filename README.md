@@ -7,16 +7,34 @@
 
 <img src=".github/assets/preview.png">
 
-A lightweight tool to fetch and display Apple Music’s animated album covers (HLS/m3u8). Built with .NET 10 and a minimal Tailwind CSS frontend.
+A lightweight tool to fetch and display Apple Music’s animated album covers (HLS/m3u8). Supports both square and tall cover variants, as well as playlist artworks. Built with .NET 10 and a minimal Tailwind CSS frontend.
+
+<table align="center" style="margin-top: 16px; width: 70%;">
+	<tr>
+		<td align="center" width="50%"><strong>Square Cover</strong></td>
+		<td align="center" width="50%"><strong>Tall Cover</strong></td>
+	</tr>
+	<tr>
+		<td align="center">
+			<img src=".github/assets/living_things_artwork_square.gif" alt="Square cover preview" style="max-width: 100%; border-radius: 8px;">
+		</td>
+		<td align="center">
+			<img src=".github/assets/plastic_beach_deluxe_version_artwork_tall.gif" alt="Tall cover preview" style="max-width: 100%; border-radius: 8px;">
+		</td>
+	</tr>
+</table>
 
 **Test it out:** [https://artwork.m8tec.top](https://artwork.m8tec.top)
 
 </div>
 
 ## What it does
-- Scraping: Pulls the .m3u8 stream URL directly from Apple Music’s public web player using JSON-LD metadata.
-- Persistent Cache: Saves results in a local cache_database.json file. It only hits Apple's servers once per album.
-- Thread Safety: Uses a keyed locker to prevent multiple concurrent requests for the same album from overloading the backend.
+- Search: Accepts artist and album names, or Apple Music URLs, to find the corresponding animated artwork.
+- Scraping: Pulls the .m3u8 stream URLs directly from Apple Music.
+- Download: Allows in-browser preview and download of the animated covers.
+- Multiple Variants: Supports both the standard square cover and the taller variant used for lock screen & expanded artwork views.
+- API: Provides a simple REST API for programmatic access to the artwork data.
+- Cache: Saves results in local cache files. It only hits Apple's servers once per album.
 - Web Player: Simple UI using hls.js to play the animated covers in any browser (not just Safari).
 
 ## Tech Stack
@@ -66,8 +84,8 @@ Base URL: https://artwork.m8tec.top
 ## Caching Strategy
 This project is designed to be "Apple-friendly" to avoid rate limits:
 1. **Fuzzy Matching:** The cache uses normalized two-way substring matching. Searching for base albums automatically resolves cached "Deluxe" or "Remastered" editions.
-2. **Prioritization:** Prefers cached entries with existing .m3u8 URLs.
-3. Negative Caching: Albums that are confirmed to have no animated artwork are cached as NONE to prevent repeated futile scraping.
+2. Negative Artwork Caching: Albums that are confirmed to have no animated artwork are cached as NONE to prevent repeated futile scraping.
+3. Negative Search Caching: If a search query returns no matches, that result is cached to avoid repeated searches for the same non-existent album.
 
 ## Legal Disclaimer
 This project is for educational purposes only. It uses web scraping techniques to retrieve publicly available metadata. Please respect Apple Music's Terms of Service and use this tool responsibly.

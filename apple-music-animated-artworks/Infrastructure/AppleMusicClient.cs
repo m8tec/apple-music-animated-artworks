@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json.Nodes;
@@ -11,16 +12,23 @@ using Serilog;
 namespace AnimatedArtworks.Infrastructure;
 public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService statusService) : IAppleMusicClient
 {
-    [GeneratedRegex(@"<script[^>]+type=""application/ld\+json""[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
-    private partial Regex JsonLdRegex();
+    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase)]
+    private partial Regex StorefrontAlbumRegex();
 
-    [GeneratedRegex(@"<amp-ambient-video[^>]*?src=""([^""]+\.m3u8)""", RegexOptions.IgnoreCase)]
-    private partial Regex AmpVideoRegex();
+    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
+    private partial Regex StorefrontPlaylistRegex();
+    private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
+
+    [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
+    private partial Regex JsAssetRegex();
+
+    [GeneratedRegex(@"[""'](eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+)[""']")]
+    private partial Regex JwtRegex();
     
     [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/([^/""?]+)/\d+)""", RegexOptions.IgnoreCase)]
     private partial Regex AppleMusicLinkRegex();
 
-    [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("[^a-z0-9]+", RegexOptions.IgnoreCase)]
     private static partial Regex NonAlphanumericRegex();
 
     private const string AppleMusicSearchUrl = "https://music.apple.com/us/search?term=";
@@ -35,9 +43,22 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
         string searchUrl = AppleMusicSearchUrl + query;
 
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping search request for {SearchUrl}", searchUrl);
+            return new(AppleMusicWebSearchStatus.RateLimited);
+        }
+
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try
         {
-            Log.Information("Outgoing request to Apple Music search: {SearchUrl}", searchUrl);
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping search request for {SearchUrl}", searchUrl);
+                return new(AppleMusicWebSearchStatus.RateLimited);
+            }
+
+            Log.Information("Outgoing search request: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
             
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -81,6 +102,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         {
             Log.Error("Apple Music Search Scrape failed: {Message}", ex.Message);
             return new(AppleMusicWebSearchStatus.Error);
+        }
+        finally
+        {
+            GlobalAppleMusicRequestLock.Release();
         }
     }
 
@@ -155,83 +180,152 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         return null;
     }
 
-    public async Task<(string? M3u8Url, string Artist, string Album)> ParseAppleMusicPageAsync(string url, CancellationToken ct)
+    private async Task<string?> GetBearerTokenAsync(string albumUrl, CancellationToken ct)
     {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, albumUrl);
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            
+            var response = await httpClient.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            
+            var html = await response.Content.ReadAsStringAsync(ct);
+            var jsPaths = JsAssetRegex().Matches(html)
+                .Select(m => m.Groups[1].Value)
+                .Where(p => p.Contains("index") || p.Contains("web-client") || p.Contains("apple-music"))
+                .Distinct();
+                
+            foreach (var jsPath in jsPaths)
+            {
+                var jsUrl = $"https://music.apple.com{jsPath}";
+                var jsResponse = await httpClient.GetAsync(jsUrl, ct);
+                if (!jsResponse.IsSuccessStatusCode) continue;
+                
+                var jsText = await jsResponse.Content.ReadAsStringAsync(ct);
+                var tokenMatch = JwtRegex().Match(jsText);
+                if (tokenMatch.Success)
+                {
+                    return tokenMatch.Groups[1].Value;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Token extraction failed: {Message}", ex.Message);
+        }
+        return null;
+    }
+
+    public async Task<AppleMusicPageParseResult> ParseAppleMusicPageAsync(string url, CancellationToken ct)
+    {
+        if (statusService.IsInBackoff())
+        {
+            Log.Warning("Global rate-limit backoff active. Skipping album page request for {Url}", url);
+            return new(AppleMusicPageParseStatus.RateLimited);
+        }
+
+        await GlobalAppleMusicRequestLock.WaitAsync(ct);
         try 
         {
-            Log.Information("Outgoing request to Apple Music album page: {Url}", url);
-            HttpResponseMessage response = await httpClient.GetAsync(url, ct);
+            if (statusService.IsInBackoff())
+            {
+                Log.Warning("Global rate-limit backoff active (after lock). Skipping album page request for {Url}", url);
+                return new(AppleMusicPageParseStatus.RateLimited);
+            }
+
+            if (!TryParseCatalogTarget(url, out string storefront, out string resourceType, out string resourceId))
+            {
+                return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
+            }
+
+            string? token = await GetBearerTokenAsync(url, ct);
+            if (token == null) return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
+
+            string apiUrl = $"https://amp-api.music.apple.com/v1/catalog/{storefront}/{resourceType}/{resourceId}?extend=editorialVideo&platform=web";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            request.Headers.Add("Origin", "https://music.apple.com");
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            Log.Information("Outgoing request to album page: {Url}", apiUrl);
+            var response = await httpClient.SendAsync(request, ct);
             
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                Log.Warning("Rate Limit hit while parsing album page: {StatusCode}", response.StatusCode);
+                Log.Warning("Rate Limit hit while calling AMP API: {StatusCode}", response.StatusCode);
                 statusService.ReportRateLimit();
-                return (null, "Unknown Artist", "Unknown Album");
+                return new(AppleMusicPageParseStatus.RateLimited);
             }
 
             response.EnsureSuccessStatusCode();
             statusService.ReportSuccess();
 
-            string htmlContent = await response.Content.ReadAsStringAsync(ct);
+            var jsonString = await response.Content.ReadAsStringAsync(ct);
+            JsonNode? json = JsonNode.Parse(jsonString);
             
-            Match m3u8Match = AmpVideoRegex().Match(htmlContent);
-            string? m3u8Url = m3u8Match.Success ? m3u8Match.Groups[1].Value : null;
-
-            string artistName = "Unknown Artist";
-            string albumName = "Unknown Album";
-
-            MatchCollection jsonMatches = JsonLdRegex().Matches(htmlContent);
-            foreach (Match match in jsonMatches)
+            var attrs = json?["data"]?[0]?["attributes"];
+            if (attrs != null)
             {
-                if (match.Success)
+                string artistName = attrs["artistName"]?.ToString()
+                                    ?? attrs["curatorName"]?.ToString()
+                                    ?? "Unknown Artist";
+                string albumName = attrs["name"]?.ToString() ?? "Unknown Album";
+
+                string? urlSquare = null;
+                string? urlTall = null;
+                var videos = attrs["editorialVideo"];
+                if (videos != null)
                 {
-                    try
-                    {
-                        string jsonString = match.Groups[1].Value;
-                        JsonNode? json = JsonNode.Parse(jsonString);
-
-                        if (json?["@type"]?.ToString() == "MusicAlbum")
-                        {
-                            JsonNode? nameNode = json["name"];
-                            if (nameNode != null) albumName = nameNode.ToString();
-
-                            JsonArray? byArtistArray = json["byArtist"]?.AsArray();
-                            if (byArtistArray is { Count: > 0 })
-                            {
-                                JsonNode? artistNode = byArtistArray[0]?["name"];
-                                if (artistNode != null) artistName = artistNode.ToString();
-                            }
-                            
-                            break;
-                        }
-                        if (json?["@type"]?.ToString() == "MusicPlaylist")
-                        {
-                            JsonNode? nameNode = json["name"];
-                            if (nameNode != null) albumName = nameNode.ToString();
-
-                            JsonNode? authorNode = json["author"];
-                            if (authorNode != null)
-                            {
-                                JsonNode? authorNameNode = authorNode["name"];
-                                artistName = authorNameNode != null ? authorNameNode.ToString() : "Unknown Creator";
-                            }
-
-                            break;
-                        }
-                    }
-                    catch
-                    {
-                        Log.Error("Failed to parse JSON-LD for album info.");
-                    }
+                    urlSquare = videos["motionDetailSquare"]?["video"]?.ToString();
+                    urlTall = videos["motionDetailTall"]?["video"]?.ToString();
                 }
+
+                return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Success, urlSquare, urlTall, artistName, albumName);
             }
 
-            return (m3u8Url, artistName, albumName);
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
         }
         catch (HttpRequestException ex)
         {
             Log.Error("Network error in ParseAppleMusicPageAsync: {Message}", ex.Message);
-            return (null, "Unknown Artist", "Unknown Album");
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
         }
+        catch (Exception ex)
+        {
+            Log.Error("Unexpected error in ParseAppleMusicPageAsync: {Message}", ex.Message);
+            return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
+        }
+        finally {
+            GlobalAppleMusicRequestLock.Release();
+        }
+    }
+
+    private bool TryParseCatalogTarget(string url, out string storefront, out string resourceType, out string resourceId)
+    {
+        storefront = "us";
+        resourceType = string.Empty;
+        resourceId = string.Empty;
+
+        Match albumMatch = StorefrontAlbumRegex().Match(url);
+        if (albumMatch.Success)
+        {
+            storefront = !string.IsNullOrEmpty(albumMatch.Groups[1].Value) ? albumMatch.Groups[1].Value : "us";
+            resourceType = "albums";
+            resourceId = albumMatch.Groups[2].Value;
+            return true;
+        }
+
+        Match playlistMatch = StorefrontPlaylistRegex().Match(url);
+        if (playlistMatch.Success)
+        {
+            storefront = !string.IsNullOrEmpty(playlistMatch.Groups[1].Value) ? playlistMatch.Groups[1].Value : "us";
+            resourceType = "playlists";
+            resourceId = playlistMatch.Groups[2].Value;
+            return true;
+        }
+
+        return false;
     }
 }

@@ -11,8 +11,7 @@ namespace AnimatedArtworks.Infrastructure;
 
 public class JsonCacheService
 {
-    private const string NegativeSearchPrefix = "search-miss:";
-    private string FilePath { get; set; }
+    private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
@@ -38,16 +37,6 @@ public class JsonCacheService
         return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     }
 
-    private static bool IsNegativeSearchKey(string cacheKey)
-    {
-        return cacheKey.StartsWith(NegativeSearchPrefix, System.StringComparison.Ordinal);
-    }
-
-    private static string BuildNegativeSearchCacheKey(string artist, string album)
-    {
-        return $"{NegativeSearchPrefix}{NormalizeForCache(artist)}|{NormalizeForCache(album)}";
-    }
-    
     public IEnumerable<ArtworkCacheEntry> GetAll() => _cache.Values;
 
     public ArtworkCacheEntry? GetByUrl(string appleMusicUrl)
@@ -70,52 +59,25 @@ public class JsonCacheService
                 string cachedArtist = NormalizeForCache(x.Artist);
                 string cachedAlbum = NormalizeForCache(x.Album);
 
-                if (IsNegativeSearchKey(x.AppleMusicUrl))
-                {
-                    // Negative search cache entries are intentionally exact to avoid false negatives.
-                    return cachedArtist == queryArtist && cachedAlbum == queryAlbum;
-                }
-
                 bool artistMatch = cachedArtist.Contains(queryArtist) || queryArtist.Contains(cachedArtist);
                 bool albumMatch = cachedAlbum.Contains(queryAlbum) || queryAlbum.Contains(cachedAlbum);
 
                 return artistMatch && albumMatch;
             })
             // prefer existing m3u8-urls
-            .OrderByDescending(x => x.M3u8Url != null && x.M3u8Url != "NONE")
-            // prefer regular cache entries over negative search markers when both match.
-            .ThenBy(x => IsNegativeSearchKey(x.AppleMusicUrl))
+            .OrderByDescending(x => (x.M3u8Url != null && x.M3u8Url != "NONE") || (x.M3u8UrlTall != null && x.M3u8UrlTall != "NONE"))
             // prefer shorter album names, as they are more likely to be the original release instead of
             // a special edition (e.g. "A Cappella Super Deluxe Version")
             .ThenBy(x => x.Album.Length)
             .FirstOrDefault();
     }
-
-    public bool IsNegativeSearchEntry(ArtworkCacheEntry entry)
-    {
-        return IsNegativeSearchKey(entry.AppleMusicUrl);
-    }
-
-    public async Task SaveNegativeSearchResultAsync(string artist, string album)
-    {
-        ArtworkCacheEntry entry = new(
-            AppleMusicUrl: BuildNegativeSearchCacheKey(artist, album),
-            Artist: artist,
-            Album: album,
-            M3u8Url: "NONE",
-            LastFetched: System.DateTime.UtcNow,
-            SearchCount: 1
-        );
-
-        await SaveEntryAsync(entry);
-    }
     
-    public async Task IncrementDownloadCountAsync(string m3u8Url)
+    public async Task IncrementDownloadCountAsync(string m3U8Url)
     {
         await _fileLock.WaitAsync();
         try
         {
-            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3u8Url);
+            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3U8Url);
             
             if (target.Key != null)
             {
@@ -189,7 +151,7 @@ public class JsonCacheService
     public IEnumerable<ArtworkCacheEntry> GetRecentSearches(int limit = 12)
     {
         return _cache.Values
-            .Where(x => x.M3u8Url != null && x.M3u8Url != "NONE")
+            .Where(x => (x.M3u8Url != null && x.M3u8Url != "NONE") || (x.M3u8UrlTall != null && x.M3u8UrlTall != "NONE"))
             .OrderByDescending(x => x.LastFetched)
             .Take(limit);
     }
