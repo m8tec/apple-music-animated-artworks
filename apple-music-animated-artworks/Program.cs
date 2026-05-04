@@ -83,20 +83,34 @@ try
     app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
     {
         var allEntries = cacheService.GetAll().ToList();
-        
+    
         int totalSearches = allEntries.Sum(e => e.SearchCount);
         int totalDownloads = allEntries.Sum(e => e.DownloadCount);
+        int totalCacheEntries = allEntries.Count;
+        int totalAnimatedEntries = allEntries.Count(e => (e.M3u8Url != null && e.M3u8Url != "NONE") || (e.M3u8UrlTall != null && e.M3u8UrlTall != "NONE"));
 
         if (statusService.IsRateLimited)
         {
             return Results.Ok(new
             {
-                status = "degraded", message = "Apple Music Rate Limit. May be unstable.", totalSearches, totalDownloads
+                status = "degraded",
+                message = "Apple Music Rate Limit. May be unstable.",
+                totalSearches,
+                totalDownloads,
+                totalCacheEntries,
+                totalAnimatedEntries
             });
         }
         
         return Results.Ok(new
-            { status = "operational", message = "System Operational", totalSearches, totalDownloads });
+            {
+                status = "operational",
+                message = "System Operational",
+                totalSearches,
+                totalDownloads,
+                totalCacheEntries,
+                totalAnimatedEntries
+            });
     });
 
     app.MapGet("/api/v1/artwork/search", async (
