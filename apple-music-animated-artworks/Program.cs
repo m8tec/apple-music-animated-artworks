@@ -86,11 +86,6 @@ try
         
         int totalSearches = allEntries.Sum(e => e.SearchCount);
         int totalDownloads = allEntries.Sum(e => e.DownloadCount);
-        
-        if (statusService.IsRateLimited && (DateTime.UtcNow - statusService.LastErrorTime).TotalMinutes > 15)
-        {
-            statusService.ReportSuccess();
-        }
 
         if (statusService.IsRateLimited)
         {

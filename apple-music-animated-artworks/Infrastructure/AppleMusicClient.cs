@@ -68,7 +68,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                Log.Warning("Rate Limit hit on Apple Music: {StatusCode}", response.StatusCode);
+                Log.Warning("Rate Limit hit on AM search: {StatusCode}", response.StatusCode);
                 statusService.ReportRateLimit();
                 return new(AppleMusicWebSearchStatus.RateLimited);
             }
