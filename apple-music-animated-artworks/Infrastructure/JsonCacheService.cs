@@ -21,12 +21,7 @@ public class JsonCacheService
         
         if (File.Exists(FilePath))
         {
-            var json = File.ReadAllText(FilePath);
-            var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
-            foreach (var entry in entries)
-            {
-                _cache[entry.AppleMusicUrl] = entry;
-            }
+            LoadFromDisk();
         }
     }
     
@@ -92,7 +87,7 @@ public class JsonCacheService
                     Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
                 };
                 var json = JsonSerializer.Serialize(_cache.Values, options);
-                await File.WriteAllTextAsync(FilePath, json);
+                await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
             }
         }
         finally
@@ -117,7 +112,7 @@ public class JsonCacheService
                     Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
                 };
                 var json = JsonSerializer.Serialize(_cache.Values, options);
-                await File.WriteAllTextAsync(FilePath, json);
+                await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
             }
         }
         finally
@@ -140,11 +135,26 @@ public class JsonCacheService
             };
             
             var json = JsonSerializer.Serialize(_cache.Values, options);
-            await File.WriteAllTextAsync(FilePath, json);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
         }
         finally
         {
             _fileLock.Release();
+        }
+    }
+
+    private void LoadFromDisk()
+    {
+        var json = AtomicJsonFileStore.ReadTextWithBackup(FilePath);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
+        foreach (var entry in entries)
+        {
+            _cache[entry.AppleMusicUrl] = entry;
         }
     }
 

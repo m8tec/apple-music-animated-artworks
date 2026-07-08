@@ -25,7 +25,12 @@ public sealed class MetadataResolutionCache
             return;
         }
 
-        var json = File.ReadAllText(_filePath);
+        var json = AtomicJsonFileStore.ReadTextWithBackup(_filePath);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
         var entries = JsonSerializer.Deserialize<List<MetadataResolutionEntry>>(json) ?? [];
         foreach (var entry in entries)
         {
@@ -102,7 +107,7 @@ public sealed class MetadataResolutionCache
             };
 
             var json = JsonSerializer.Serialize(_cache.Values, options);
-            await File.WriteAllTextAsync(_filePath, json);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, json);
         }
         finally
         {
