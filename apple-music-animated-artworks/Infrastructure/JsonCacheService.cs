@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -6,25 +7,38 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Serilog;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public class JsonCacheService
+public class JsonCacheService : IDisposable
 {
     private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
+
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+
+    private volatile bool _isDirty = false;
+    private readonly Timer _saveTimer;
 
     public JsonCacheService(string filePath)
     {
         FilePath = filePath;
-        
+
         if (File.Exists(FilePath))
         {
             LoadFromDisk();
         }
+
+        _saveTimer = new Timer(async _ => await SaveIfDirtyAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
-    
+
+    public void Dispose()
+    {
+        _saveTimer?.Dispose();
+        _fileLock?.Dispose();
+    }
+
     private static string NormalizeForCache(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return string.Empty;
@@ -66,76 +80,73 @@ public class JsonCacheService
             .ThenBy(x => x.Album.Length)
             .FirstOrDefault();
     }
-    
-    public async Task IncrementDownloadCountAsync(string m3U8Url)
+
+    public Task IncrementDownloadCountAsync(string m3U8Url)
     {
-        await _fileLock.WaitAsync();
-        try
+        var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3U8Url);
+
+        if (target.Key != null)
         {
-            var target = _cache.FirstOrDefault(x => x.Value.M3u8Url == m3U8Url);
-            
-            if (target.Key != null)
-            {
-                var entry = target.Value;
-                
-                var updatedEntry = entry with { DownloadCount = entry.DownloadCount + 1 };
-                _cache[target.Key] = updatedEntry;
-                
-                var options = new JsonSerializerOptions 
-                { 
-                    WriteIndented = true, 
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
-                };
-                var json = JsonSerializer.Serialize(_cache.Values, options);
-                await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
-            }
+            var entry = target.Value;
+            var updatedEntry = entry with { DownloadCount = entry.DownloadCount + 1 };
+            _cache[target.Key] = updatedEntry;
+
+            _isDirty = true;
         }
-        finally
-        {
-            _fileLock.Release();
-        }
+
+        return Task.CompletedTask;
     }
-    
-    public async Task IncrementSearchCountAsync(ArtworkCacheEntry cacheEntry)
+
+    public Task IncrementSearchCountAsync(ArtworkCacheEntry cacheEntry)
     {
-        await _fileLock.WaitAsync();
-        try
+        if (_cache.TryGetValue(cacheEntry.AppleMusicUrl, out var entry))
         {
-            if (_cache.TryGetValue(cacheEntry.AppleMusicUrl, out var entry))
-            {
-                var updatedEntry = entry with { SearchCount = entry.SearchCount + 1 };
-                _cache[cacheEntry.AppleMusicUrl] = updatedEntry;
-                
-                var options = new JsonSerializerOptions 
-                { 
-                    WriteIndented = true, 
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
-                };
-                var json = JsonSerializer.Serialize(_cache.Values, options);
-                await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
-            }
+            var updatedEntry = entry with { SearchCount = entry.SearchCount + 1 };
+            _cache[cacheEntry.AppleMusicUrl] = updatedEntry;
+
+            _isDirty = true;
         }
-        finally
-        {
-            _fileLock.Release();
-        }
+
+        return Task.CompletedTask;
     }
-    
+
     public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
         _cache[newEntry.AppleMusicUrl] = newEntry;
 
-        await _fileLock.WaitAsync();
+        _isDirty = true;
+    }
+
+    private async Task SaveIfDirtyAsync()
+    {
+        if (!_isDirty) return;
+
+        await SaveToDiskNowAsync();
+    }
+
+    private async Task SaveToDiskNowAsync()
+    {
+        if (!await _fileLock.WaitAsync(TimeSpan.FromSeconds(5)))
+            return;
+
+        Log.Debug("Saving artwork cache to disk", FilePath);
+
         try
         {
-            var options = new JsonSerializerOptions 
-            { 
+            _isDirty = false;
+
+            var options = new JsonSerializerOptions
+            {
                 WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             };
-            
+
             var json = JsonSerializer.Serialize(_cache.Values, options);
             await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
+        }
+        catch
+        {
+            _isDirty = true;
         }
         finally
         {

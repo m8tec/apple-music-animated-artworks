@@ -61,7 +61,7 @@ public partial class ArtworkService(
             return (cachedEntry, true);
         }
 
-        Log.Information(
+        Log.Debug(
             cachedEntry != null
                 ? "Cache entry is missing tall artwork: {AppleMusicUrl}"
                 : "URL cache miss: {AppleMusicUrl}", normalizedUrl);
@@ -113,7 +113,7 @@ public partial class ArtworkService(
             );
 
             await cache.SaveEntryAsync(newEntry);
-            Log.Information("Saved URL cache entry: {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
+            Log.Information("Added artwork entry: {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
                 normalizedUrl,
                 artist,
                 album,
@@ -124,6 +124,7 @@ public partial class ArtworkService(
         finally
         {
             semaphore.Release();
+            locker.RemoveLock(normalizedUrl);
         }
     }
 
