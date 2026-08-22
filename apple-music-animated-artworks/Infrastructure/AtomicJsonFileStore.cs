@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,7 +40,12 @@ public static class AtomicJsonFileStore
 
         try
         {
-            await File.WriteAllTextAsync(tempPath, content, cancellationToken);
+            await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true))
+            using (var writer = new StreamWriter(stream, Encoding.UTF8))
+            {
+                await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             if (File.Exists(filePath))
             {

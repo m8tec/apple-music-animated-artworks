@@ -15,11 +15,11 @@ public class JsonCacheService : IDisposable
 {
     private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
-
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly Task _flushLoop;
 
-    private volatile bool _isDirty = false;
-    private readonly Timer _saveTimer;
+    private volatile bool _isDirty;
 
     public JsonCacheService(string filePath)
     {
@@ -30,19 +30,30 @@ public class JsonCacheService : IDisposable
             LoadFromDisk();
         }
 
-        _saveTimer = new Timer(async _ => await SaveIfDirtyAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _flushLoop = FlushLoopAsync(_shutdown.Token);
     }
 
     public void Dispose()
     {
-        _saveTimer?.Dispose();
-        _fileLock?.Dispose();
+        _shutdown.Cancel();
+
+        try
+        {
+            _flushLoop.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when shutting down.
+        }
+
+        _fileLock.Dispose();
+        _shutdown.Dispose();
     }
 
     private static string NormalizeForCache(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-        
+
         return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     }
 
@@ -59,11 +70,11 @@ public class JsonCacheService : IDisposable
         string queryArtist = NormalizeForCache(artist);
         string queryAlbum = NormalizeForCache(album);
 
-        if (string.IsNullOrEmpty(queryArtist) || string.IsNullOrEmpty(queryAlbum)) 
+        if (string.IsNullOrEmpty(queryArtist) || string.IsNullOrEmpty(queryAlbum))
             return null;
 
         return _cache.Values
-            .Where(x => 
+            .Where(x =>
             {
                 string cachedArtist = NormalizeForCache(x.Artist);
                 string cachedAlbum = NormalizeForCache(x.Album);
@@ -90,7 +101,6 @@ public class JsonCacheService : IDisposable
             var entry = target.Value;
             var updatedEntry = entry with { DownloadCount = entry.DownloadCount + 1 };
             _cache[target.Key] = updatedEntry;
-
             _isDirty = true;
         }
 
@@ -103,7 +113,6 @@ public class JsonCacheService : IDisposable
         {
             var updatedEntry = entry with { SearchCount = entry.SearchCount + 1 };
             _cache[cacheEntry.AppleMusicUrl] = updatedEntry;
-
             _isDirty = true;
         }
 
@@ -113,27 +122,45 @@ public class JsonCacheService : IDisposable
     public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
         _cache[newEntry.AppleMusicUrl] = newEntry;
-
         _isDirty = true;
+        await SaveIfDirtyAsync().ConfigureAwait(false);
     }
 
-    private async Task SaveIfDirtyAsync()
+    private async Task FlushLoopAsync(CancellationToken cancellationToken)
     {
-        if (!_isDirty) return;
-
-        await SaveToDiskNowAsync();
-    }
-
-    private async Task SaveToDiskNowAsync()
-    {
-        if (!await _fileLock.WaitAsync(TimeSpan.FromSeconds(5)))
-            return;
-
-        Log.Debug("Saving artwork cache to disk", FilePath);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
 
         try
         {
-            _isDirty = false;
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await SaveIfDirtyAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown is in progress.
+        }
+    }
+
+    private async Task SaveIfDirtyAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_isDirty)
+        {
+            return;
+        }
+
+        if (!await _fileLock.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_isDirty)
+            {
+                return;
+            }
 
             var options = new JsonSerializerOptions
             {
@@ -142,7 +169,8 @@ public class JsonCacheService : IDisposable
             };
 
             var json = JsonSerializer.Serialize(_cache.Values, options);
-            await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json, cancellationToken).ConfigureAwait(false);
+            _isDirty = false;
         }
         catch
         {

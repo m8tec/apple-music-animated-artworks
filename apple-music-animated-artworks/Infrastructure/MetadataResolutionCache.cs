@@ -10,11 +10,13 @@ using System.Threading.Tasks;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public sealed class MetadataResolutionCache
+public sealed class MetadataResolutionCache : IDisposable
 {
     private readonly string _filePath;
     private readonly ConcurrentDictionary<string, MetadataResolutionEntry> _cache = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private readonly object _persistLock = new();
+    private Task _pendingPersist = Task.CompletedTask;
 
     public MetadataResolutionCache(string filePath)
     {
@@ -38,6 +40,11 @@ public sealed class MetadataResolutionCache
         }
     }
 
+    public void Dispose()
+    {
+        _fileLock.Dispose();
+    }
+
     public MetadataResolutionLookup GetLookup(string artist, string album, TimeSpan noMatchTtl)
     {
         if (_cache.TryGetValue(BuildKey(artist, album), out var entry))
@@ -51,7 +58,7 @@ public sealed class MetadataResolutionCache
                 }
 
                 _cache.TryRemove(BuildKey(artist, album), out _);
-                _ = PersistAsync();
+                _ = QueuePersistAsync();
                 return new(MetadataResolutionStatus.None);
             }
 
@@ -72,7 +79,7 @@ public sealed class MetadataResolutionCache
         );
 
         _cache[BuildKey(artist, album)] = entry;
-        await PersistAsync();
+        await QueuePersistAsync().ConfigureAwait(false);
     }
 
     public async Task SaveNoMatchAsync(string artist, string album)
@@ -86,18 +93,31 @@ public sealed class MetadataResolutionCache
         );
 
         _cache[BuildKey(artist, album)] = entry;
-        await PersistAsync();
+        await QueuePersistAsync().ConfigureAwait(false);
     }
 
     public async Task RemoveResolvedUrlAsync(string artist, string album)
     {
         _cache.TryRemove(BuildKey(artist, album), out _);
-        await PersistAsync();
+        await QueuePersistAsync().ConfigureAwait(false);
+    }
+
+    private Task QueuePersistAsync()
+    {
+        lock (_persistLock)
+        {
+            if (_pendingPersist.IsCompleted)
+            {
+                _pendingPersist = PersistAsync();
+            }
+
+            return _pendingPersist;
+        }
     }
 
     private async Task PersistAsync()
     {
-        await _fileLock.WaitAsync();
+        await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
             var options = new JsonSerializerOptions
@@ -107,7 +127,7 @@ public sealed class MetadataResolutionCache
             };
 
             var json = JsonSerializer.Serialize(_cache.Values, options);
-            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, json);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, json).ConfigureAwait(false);
         }
         finally
         {
