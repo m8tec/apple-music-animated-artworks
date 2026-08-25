@@ -1,6 +1,7 @@
 using System;
 using System.IO;
-using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,7 +28,7 @@ public static class AtomicJsonFileStore
         return string.Empty;
     }
 
-    public static async Task WriteAtomicallyAsync(string filePath, string content, CancellationToken cancellationToken = default)
+    public static async Task WriteAtomicallyAsync<T>(string filePath, T data, CancellationToken cancellationToken = default)
     {
         string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(directory))
@@ -41,10 +42,14 @@ public static class AtomicJsonFileStore
         try
         {
             await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true))
-            using (var writer = new StreamWriter(stream, Encoding.UTF8))
             {
-                await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
-                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                };
+
+                await JsonSerializer.SerializeAsync(stream, data, options, cancellationToken).ConfigureAwait(false);
             }
 
             if (File.Exists(filePath))

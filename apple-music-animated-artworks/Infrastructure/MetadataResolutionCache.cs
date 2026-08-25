@@ -120,14 +120,7 @@ public sealed class MetadataResolutionCache : IDisposable
         await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-
-            var json = JsonSerializer.Serialize(_cache.Values, options);
-            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, json).ConfigureAwait(false);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, _cache.Values).ConfigureAwait(false);
         }
         finally
         {

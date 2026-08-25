@@ -162,14 +162,7 @@ public class JsonCacheService : IDisposable
                 return;
             }
 
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-
-            var json = JsonSerializer.Serialize(_cache.Values, options);
-            await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, json, cancellationToken).ConfigureAwait(false);
+            await AtomicJsonFileStore.WriteAtomicallyAsync(FilePath, _cache.Values, cancellationToken).ConfigureAwait(false);
             _isDirty = false;
         }
         catch
