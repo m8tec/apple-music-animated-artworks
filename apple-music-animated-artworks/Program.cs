@@ -1,11 +1,13 @@
 using System;
 using System.Linq;
 using System.Threading;
+using System.Threading.RateLimiting;
 using AnimatedArtworks.Application;
 using AnimatedArtworks.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -60,9 +62,39 @@ try
         });
     });
 
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = async (context, token) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            {
+                context.HttpContext.Response.Headers["Retry-After"] = retryAfter.TotalSeconds.ToString();
+            }
+
+            context.HttpContext.Response.ContentType = "text/plain";
+            await context.HttpContext.Response.WriteAsync("Too many requests. Please slow down.", token);
+        };
+
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        {
+            var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "global";
+
+            return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromSeconds(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 100,
+                AutoReplenishment = true
+            });
+        });
+    });
+
     var app = builder.Build();
     
     app.UseCors("AllowAll");
+    app.UseRateLimiter();
 
     app.Lifetime.ApplicationStarted.Register(() =>
     {

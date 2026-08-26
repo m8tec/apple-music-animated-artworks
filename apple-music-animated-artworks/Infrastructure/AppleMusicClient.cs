@@ -17,7 +17,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
     [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
     private partial Regex StorefrontPlaylistRegex();
-    private static readonly SemaphoreSlim GlobalAppleMusicRequestLock = new(1, 1);
+    private static readonly SemaphoreSlim _appleMusicSemaphore = new(5, 5);
 
     [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
     private partial Regex JsAssetRegex();
@@ -40,7 +40,6 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         if (!string.IsNullOrWhiteSpace(title)) searchParts.Add(title);
 
         string query = Uri.EscapeDataString(string.Join(" ", searchParts));
-
         string searchUrl = AppleMusicSearchUrl + query;
 
         if (statusService.IsInBackoff())
@@ -49,7 +48,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             return new(AppleMusicWebSearchStatus.RateLimited);
         }
 
-        await GlobalAppleMusicRequestLock.WaitAsync(ct);
+        await _appleMusicSemaphore.WaitAsync(ct);
         try
         {
             if (statusService.IsInBackoff())
@@ -60,7 +59,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
             Log.Information("Outgoing search request: {SearchUrl}", searchUrl);
             using var request = new HttpRequestMessage(HttpMethod.Get, searchUrl);
-            
+
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
 
@@ -72,13 +71,12 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                 statusService.ReportRateLimit();
                 return new(AppleMusicWebSearchStatus.RateLimited);
             }
-            
+
             response.EnsureSuccessStatusCode();
-            
             statusService.ReportSuccess();
 
             string htmlContent = await response.Content.ReadAsStringAsync(ct);
-            
+
             MatchCollection matches = AppleMusicLinkRegex().Matches(htmlContent);
 
             foreach (Match match in matches)
@@ -94,7 +92,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
                 Log.Debug("Rejected non-matching album hit. Requested: {RequestedAlbum}, Found: {FoundAlbum}, Url: {Url}", album, foundAlbumSlug, foundUrl);
             }
-            
+
             Log.Debug("Found no matching album links in HTML for query: {Query}", query);
             return new(AppleMusicWebSearchStatus.NoMatch);
         }
@@ -105,7 +103,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         }
         finally
         {
-            GlobalAppleMusicRequestLock.Release();
+            _appleMusicSemaphore.Release();
         }
     }
 
@@ -134,17 +132,16 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
     {
         List<string> searchParts = [artist, album];
         if (!string.IsNullOrWhiteSpace(title)) searchParts.Add(title);
-        
+
         string query = Uri.EscapeDataString(string.Join(" ", searchParts));
-        
         string entity = string.IsNullOrWhiteSpace(title) ? "album" : "song";
-        
         string searchUrl = ItunesSearchUrl + $"?term={query}&entity={entity}&limit=5&explicit=Yes";
 
+        await _appleMusicSemaphore.WaitAsync(ct);
         try
         {
             Log.Information("Outgoing request to iTunes search: {SearchUrl}", searchUrl);
-            HttpResponseMessage response = await httpClient.GetAsync(searchUrl, ct);
+            using HttpResponseMessage response = await httpClient.GetAsync(searchUrl, ct);
 
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
@@ -152,9 +149,8 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                 statusService.ReportRateLimit();
                 return null;
             }
-            
+
             response.EnsureSuccessStatusCode();
-            
             statusService.ReportSuccess();
 
             string jsonString = await response.Content.ReadAsStringAsync(ct);
@@ -167,41 +163,47 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
                 if (!string.IsNullOrEmpty(collectionViewUrl))
                 {
-                   Uri uri = new(collectionViewUrl);
-                   return $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
+                    Uri uri = new(collectionViewUrl);
+                    return $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
                 }
             }
+
+            return null;
         }
         catch (HttpRequestException ex)
         {
             Log.Error("iTunes API request failed: {Message}", ex.Message);
+            return null;
         }
-
-        return null;
+        finally
+        {
+            _appleMusicSemaphore.Release();
+        }
     }
 
     private async Task<string?> GetBearerTokenAsync(string albumUrl, CancellationToken ct)
     {
+        await _appleMusicSemaphore.WaitAsync(ct);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, albumUrl);
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            
-            var response = await httpClient.SendAsync(request, ct);
+
+            using var response = await httpClient.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode) return null;
-            
+
             var html = await response.Content.ReadAsStringAsync(ct);
             var jsPaths = JsAssetRegex().Matches(html)
                 .Select(m => m.Groups[1].Value)
                 .Where(p => p.Contains("index") || p.Contains("web-client") || p.Contains("apple-music"))
                 .Distinct();
-                
+
             foreach (var jsPath in jsPaths)
             {
                 var jsUrl = $"https://music.apple.com{jsPath}";
-                var jsResponse = await httpClient.GetAsync(jsUrl, ct);
+                using var jsResponse = await httpClient.GetAsync(jsUrl, ct);
                 if (!jsResponse.IsSuccessStatusCode) continue;
-                
+
                 var jsText = await jsResponse.Content.ReadAsStringAsync(ct);
                 var tokenMatch = JwtRegex().Match(jsText);
                 if (tokenMatch.Success)
@@ -209,12 +211,18 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
                     return tokenMatch.Groups[1].Value;
                 }
             }
+
+            return null;
         }
         catch (Exception ex)
         {
             Log.Error("Token extraction failed: {Message}", ex.Message);
+            return null;
         }
-        return null;
+        finally
+        {
+            _appleMusicSemaphore.Release();
+        }
     }
 
     public async Task<AppleMusicPageParseResult> ParseAppleMusicPageAsync(string url, CancellationToken ct)
@@ -225,8 +233,8 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             return new(AppleMusicPageParseStatus.RateLimited);
         }
 
-        await GlobalAppleMusicRequestLock.WaitAsync(ct);
-        try 
+        await _appleMusicSemaphore.WaitAsync(ct);
+        try
         {
             if (statusService.IsInBackoff())
             {
@@ -250,8 +258,8 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
             Log.Information("Outgoing request to album page: {Url}", apiUrl);
-            var response = await httpClient.SendAsync(request, ct);
-            
+            using var response = await httpClient.SendAsync(request, ct);
+
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
                 Log.Warning("Rate Limit hit while calling AMP API: {StatusCode}", response.StatusCode);
@@ -264,7 +272,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
             var jsonString = await response.Content.ReadAsStringAsync(ct);
             JsonNode? json = JsonNode.Parse(jsonString);
-            
+
             var attrs = json?["data"]?[0]?["attributes"];
             if (attrs != null)
             {
@@ -297,8 +305,9 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             Log.Error("Unexpected error in ParseAppleMusicPageAsync: {Message}", ex.Message);
             return new AppleMusicPageParseResult(AppleMusicPageParseStatus.Error);
         }
-        finally {
-            GlobalAppleMusicRequestLock.Release();
+        finally
+        {
+            _appleMusicSemaphore.Release();
         }
     }
 
