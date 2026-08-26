@@ -6,6 +6,7 @@ using AnimatedArtworks.Application;
 using AnimatedArtworks.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,13 @@ try
     });
 
     builder.Services.AddScoped<ArtworkService>();
+
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
     
     builder.Services.AddCors(options =>
     {
@@ -78,7 +86,12 @@ try
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
-            var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "global";
+            var remoteIp = httpContext.Connection.RemoteIpAddress;
+            var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+
+            var clientIp = !string.IsNullOrWhiteSpace(forwardedFor)
+                ? forwardedFor.Split(',')[0].Trim()
+                : remoteIp?.ToString() ?? "global";
 
             return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
             {
@@ -92,7 +105,8 @@ try
     });
 
     var app = builder.Build();
-    
+
+    app.UseForwardedHeaders();
     app.UseCors("AllowAll");
     app.UseRateLimiter();
 
