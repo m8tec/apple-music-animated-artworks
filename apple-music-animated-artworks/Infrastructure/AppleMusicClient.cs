@@ -12,23 +12,23 @@ using Serilog;
 namespace AnimatedArtworks.Infrastructure;
 public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService statusService) : IAppleMusicClient
 {
-    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?album/(?:[^/]+/)?(\d+)", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private partial Regex StorefrontAlbumRegex();
 
-    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private partial Regex StorefrontPlaylistRegex();
     private static readonly SemaphoreSlim _appleMusicSemaphore = new(2, 2);
 
-    [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private partial Regex JsAssetRegex();
 
-    [GeneratedRegex(@"[""'](eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+)[""']")]
+    [GeneratedRegex(@"[""'](eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+)[""']", RegexOptions.NonBacktracking)]
     private partial Regex JwtRegex();
     
-    [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/([^/""?]+)/\d+)""", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"href=""(https://music\.apple\.com/[a-z]{2}/album/([^/""?]+)/\d+)""", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private partial Regex AppleMusicLinkRegex();
 
-    [GeneratedRegex("[^a-z0-9]+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("[^a-z0-9]+", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private static partial Regex NonAlphanumericRegex();
 
     private const string AppleMusicSearchUrl = "https://music.apple.com/us/search?term=";
