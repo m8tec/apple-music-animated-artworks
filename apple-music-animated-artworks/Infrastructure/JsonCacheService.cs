@@ -133,11 +133,11 @@ public class JsonCacheService : IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
+    public Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
         _cache[newEntry.AppleMusicUrl] = newEntry;
         _isDirty = true;
-        await SaveIfDirtyAsync().ConfigureAwait(false);
+        return Task.CompletedTask;
     }
 
     private async Task FlushLoopAsync(CancellationToken cancellationToken)

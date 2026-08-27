@@ -10,19 +10,20 @@ using System.Threading.Tasks;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public sealed class MetadataResolutionCache : IDisposable
+public sealed class MetadataResolutionCache : IAsyncDisposable
 {
     private readonly string _filePath;
     private readonly ConcurrentDictionary<string, MetadataResolutionEntry> _cache = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
-    private readonly object _persistLock = new();
-    private Task _pendingPersist = Task.CompletedTask;
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly Task _flushLoop;
+    private volatile bool _isDirty;
     public bool IsInitialized { get; private set; }
 
     public MetadataResolutionCache(string filePath)
     {
         _filePath = filePath;
-
+        _flushLoop = FlushLoopAsync(_shutdown.Token);
     }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -43,9 +44,21 @@ public sealed class MetadataResolutionCache : IDisposable
         IsInitialized = true;
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        _shutdown.Cancel();
+
+        try
+        {
+            await _flushLoop.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when shutting down.
+        }
+
         _fileLock.Dispose();
+        _shutdown.Dispose();
     }
 
     public MetadataResolutionLookup GetLookup(string artist, string album, TimeSpan noMatchTtl)
@@ -61,7 +74,7 @@ public sealed class MetadataResolutionCache : IDisposable
                 }
 
                 _cache.TryRemove(BuildKey(artist, album), out _);
-                _ = QueuePersistAsync();
+                _isDirty = true;
                 return new(MetadataResolutionStatus.None);
             }
 
@@ -71,7 +84,7 @@ public sealed class MetadataResolutionCache : IDisposable
         return new(MetadataResolutionStatus.None);
     }
 
-    public async Task SaveResolvedUrlAsync(string artist, string album, string resolvedAppleMusicUrl)
+    public Task SaveResolvedUrlAsync(string artist, string album, string resolvedAppleMusicUrl)
     {
         var entry = new MetadataResolutionEntry(
             Artist: artist,
@@ -82,10 +95,11 @@ public sealed class MetadataResolutionCache : IDisposable
         );
 
         _cache[BuildKey(artist, album)] = entry;
-        await QueuePersistAsync().ConfigureAwait(false);
+        _isDirty = true;
+        return Task.CompletedTask;
     }
 
-    public async Task SaveNoMatchAsync(string artist, string album)
+    public Task SaveNoMatchAsync(string artist, string album)
     {
         var entry = new MetadataResolutionEntry(
             Artist: artist,
@@ -96,34 +110,54 @@ public sealed class MetadataResolutionCache : IDisposable
         );
 
         _cache[BuildKey(artist, album)] = entry;
-        await QueuePersistAsync().ConfigureAwait(false);
+        _isDirty = true;
+        return Task.CompletedTask;
     }
 
-    public async Task RemoveResolvedUrlAsync(string artist, string album)
+    public Task RemoveResolvedUrlAsync(string artist, string album)
     {
         _cache.TryRemove(BuildKey(artist, album), out _);
-        await QueuePersistAsync().ConfigureAwait(false);
+        _isDirty = true;
+        return Task.CompletedTask;
     }
 
-    private Task QueuePersistAsync()
+    private async Task FlushLoopAsync(CancellationToken cancellationToken)
     {
-        lock (_persistLock)
-        {
-            if (_pendingPersist.IsCompleted)
-            {
-                _pendingPersist = PersistAsync();
-            }
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
 
-            return _pendingPersist;
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await PersistIfDirtyAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown is in progress.
         }
     }
 
-    private async Task PersistAsync()
+    private async Task PersistIfDirtyAsync(CancellationToken cancellationToken)
     {
-        await _fileLock.WaitAsync().ConfigureAwait(false);
+        if (!_isDirty || !await _fileLock.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
         try
         {
-            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, _cache.Values).ConfigureAwait(false);
+            if (!_isDirty)
+            {
+                return;
+            }
+
+            await AtomicJsonFileStore.WriteAtomicallyAsync(_filePath, _cache.Values, cancellationToken).ConfigureAwait(false);
+            _isDirty = false;
+        }
+        catch
+        {
+            _isDirty = true;
         }
         finally
         {

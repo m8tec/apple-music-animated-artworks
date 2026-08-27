@@ -148,8 +148,9 @@ try
         await next();
     });
     
-    app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
+    app.MapGet("/api/v1/status", (HttpResponse response, [FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         var allEntries = cacheService.GetAll().ToList();
     
         int totalSearches = allEntries.Sum(e => e.SearchCount);
@@ -188,8 +189,10 @@ try
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
         [FromServices] JsonCacheService cacheService,
+        HttpResponse response,
         CancellationToken ct) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         logger.LogInformation("Incoming Request: Metadata Search -> Artist: {Artist}, Album: {Album}, Title: {Title}", 
             artist, album, title ?? "N/A");
         
@@ -222,8 +225,10 @@ try
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
         [FromServices] JsonCacheService cacheService,
+        HttpResponse response,
         CancellationToken ct) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         logger.LogInformation("Incoming Request: URL Search -> {AppleMusicUrl}", url);
         
         if (string.IsNullOrWhiteSpace(url) || !url.Contains("music.apple.com"))
@@ -252,8 +257,10 @@ try
     
     app.MapPost("/api/v1/artwork/download", async (
         DownloadReportRequest req, 
-        JsonCacheService cacheService) => 
+        JsonCacheService cacheService,
+        HttpResponse response) => 
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         if (string.IsNullOrWhiteSpace(req.M3U8Url))
             return Results.BadRequest();
 
@@ -262,8 +269,9 @@ try
         return Results.Ok();
     }).RequireRateLimiting("ApiRateLimit");
 
-    app.MapGet("/api/v1/artwork/history", ([FromServices] JsonCacheService cache) =>
+    app.MapGet("/api/v1/artwork/history", (HttpResponse response, [FromServices] JsonCacheService cache) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         var recent = cache.GetRecentSearches().Select(x => new 
         {
             artist = x.Artist,
