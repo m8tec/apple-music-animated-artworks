@@ -128,7 +128,7 @@ public class JsonCacheService : IDisposable
 
     private async Task FlushLoopAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
 
         try
         {
