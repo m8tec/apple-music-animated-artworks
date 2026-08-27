@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Encodings.Web;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,7 +40,7 @@ public class JsonCacheService : IAsyncDisposable
                 var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
                 foreach (var entry in entries)
                 {
-                    _cache[entry.AppleMusicUrl] = entry;
+                    _cache[entry.AppleMusicUrl] = WithNormalizedValues(entry);
                 }
             }
         }
@@ -66,9 +67,30 @@ public class JsonCacheService : IAsyncDisposable
 
     private static string NormalizeForCache(string input)
     {
-        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return string.Empty;
+        }
 
-        return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+        var normalized = new StringBuilder(input.Length);
+        foreach (char character in input)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                normalized.Append(char.ToLowerInvariant(character));
+            }
+        }
+
+        return normalized.ToString();
+    }
+
+    private static ArtworkCacheEntry WithNormalizedValues(ArtworkCacheEntry entry)
+    {
+        return entry with
+        {
+            NormalizedArtist = NormalizeForCache(entry.Artist),
+            NormalizedAlbum = NormalizeForCache(entry.Album)
+        };
     }
 
     public IEnumerable<ArtworkCacheEntry> GetAll() => _cache.Values;
@@ -90,11 +112,8 @@ public class JsonCacheService : IAsyncDisposable
         return _cache.Values
             .Where(x =>
             {
-                string cachedArtist = NormalizeForCache(x.Artist);
-                string cachedAlbum = NormalizeForCache(x.Album);
-
-                bool artistMatch = cachedArtist.Contains(queryArtist) || queryArtist.Contains(cachedArtist);
-                bool albumMatch = cachedAlbum.Contains(queryAlbum) || queryAlbum.Contains(cachedAlbum);
+                bool artistMatch = x.NormalizedArtist.Contains(queryArtist) || queryArtist.Contains(x.NormalizedArtist);
+                bool albumMatch = x.NormalizedAlbum.Contains(queryAlbum) || queryAlbum.Contains(x.NormalizedAlbum);
 
                 return artistMatch && albumMatch;
             })
@@ -135,7 +154,7 @@ public class JsonCacheService : IAsyncDisposable
 
     public Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
-        _cache[newEntry.AppleMusicUrl] = newEntry;
+        _cache[newEntry.AppleMusicUrl] = WithNormalizedValues(newEntry);
         _isDirty = true;
         return Task.CompletedTask;
     }
