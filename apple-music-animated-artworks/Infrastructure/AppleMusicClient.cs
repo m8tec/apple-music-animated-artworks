@@ -17,7 +17,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
 
     [GeneratedRegex(@"music\.apple\.com/(?:([a-z]{2})/)?playlist/(?:[^/]+/)?(pl\.[a-z0-9]+)", RegexOptions.IgnoreCase)]
     private partial Regex StorefrontPlaylistRegex();
-    private static readonly SemaphoreSlim _appleMusicSemaphore = new(5, 5);
+    private static readonly SemaphoreSlim _appleMusicSemaphore = new(2, 2);
 
     [GeneratedRegex(@"(/assets/[^""]+\.js)", RegexOptions.IgnoreCase)]
     private partial Regex JsAssetRegex();
@@ -233,7 +233,7 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             return new(AppleMusicPageParseStatus.RateLimited);
         }
 
-        await _appleMusicSemaphore.WaitAsync(ct);
+        bool semaphoreAcquired = false;
         try
         {
             if (statusService.IsInBackoff())
@@ -258,6 +258,8 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
             Log.Information("Outgoing request to album page: {Url}", apiUrl);
+            await _appleMusicSemaphore.WaitAsync(ct);
+            semaphoreAcquired = true;
             using var response = await httpClient.SendAsync(request, ct);
 
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
@@ -307,7 +309,10 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         }
         finally
         {
-            _appleMusicSemaphore.Release();
+            if (semaphoreAcquired)
+            {
+                _appleMusicSemaphore.Release();
+            }
         }
     }
 

@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using AnimatedArtworks.Application;
 using AnimatedArtworks.Infrastructure;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
@@ -86,7 +87,7 @@ try
             await context.HttpContext.Response.WriteAsync("Too many requests. Please slow down.", token);
         };
 
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        options.AddPolicy("ApiRateLimit", httpContext =>
         {
             var remoteIp = httpContext.Connection.RemoteIpAddress;
             var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -100,7 +101,7 @@ try
                 PermitLimit = 20,
                 Window = TimeSpan.FromSeconds(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 100,
+                QueueLimit = 0,
                 AutoReplenishment = true
             });
         });
@@ -110,6 +111,10 @@ try
 
     app.UseForwardedHeaders();
     app.UseCors("AllowAll");
+
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+
     app.UseRateLimiter();
 
     app.Lifetime.ApplicationStarted.Register(() =>
@@ -124,9 +129,6 @@ try
             Log.Information("Started, but no server addresses were available yet.");
         }
     });
-
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
 
     app.Use(async (context, next) =>
     {
@@ -178,7 +180,7 @@ try
                 totalCacheEntries,
                 totalAnimatedEntries
             });
-    });
+    }).RequireRateLimiting("ApiRateLimit");
 
     app.MapGet("/api/v1/artwork/search", async (
         [FromQuery] string artist, 
@@ -216,7 +218,7 @@ try
         }
 
         return Results.NotFound(new { message = "No animated artwork found." });
-    });
+    }).RequireRateLimiting("ApiRateLimit");
 
     app.MapGet("/api/v1/artwork/url", async (
         [FromQuery] string url, 
@@ -251,7 +253,7 @@ try
         }
     
         return Results.NotFound(new { message = "No animated artwork found." });
-    });
+    }).RequireRateLimiting("ApiRateLimit");
     
     app.MapPost("/api/v1/artwork/download", async (
         DownloadReportRequest req, 
@@ -265,7 +267,7 @@ try
         await cacheService.IncrementDownloadCountAsync(req.M3U8Url);
         
         return Results.Ok();
-    });
+    }).RequireRateLimiting("ApiRateLimit");
 
     app.MapGet("/api/v1/artwork/history", (HttpResponse response, [FromServices] JsonCacheService cache) =>
     {
@@ -280,7 +282,7 @@ try
         });
     
         return Results.Ok(recent);
-    });
+    }).RequireRateLimiting("ApiRateLimit");
 
     app.Run();
 }
