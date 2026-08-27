@@ -11,7 +11,7 @@ using Serilog;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public class JsonCacheService : IDisposable
+public class JsonCacheService : IAsyncDisposable
 {
     private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
@@ -20,26 +20,40 @@ public class JsonCacheService : IDisposable
     private readonly Task _flushLoop;
 
     private volatile bool _isDirty;
+    public bool IsInitialized { get; private set; }
 
     public JsonCacheService(string filePath)
     {
         FilePath = filePath;
 
-        if (File.Exists(FilePath))
-        {
-            LoadFromDisk();
-        }
-
         _flushLoop = FlushLoopAsync(_shutdown.Token);
     }
 
-    public void Dispose()
+    public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (File.Exists(FilePath))
+        {
+            var json = await AtomicJsonFileStore.ReadTextWithBackupAsync(FilePath, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
+                foreach (var entry in entries)
+                {
+                    _cache[entry.AppleMusicUrl] = entry;
+                }
+            }
+        }
+
+        IsInitialized = true;
+    }
+
+    public async ValueTask DisposeAsync()
     {
         _shutdown.Cancel();
 
         try
         {
-            _flushLoop.GetAwaiter().GetResult();
+            await _flushLoop.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -172,21 +186,6 @@ public class JsonCacheService : IDisposable
         finally
         {
             _fileLock.Release();
-        }
-    }
-
-    private void LoadFromDisk()
-    {
-        var json = AtomicJsonFileStore.ReadTextWithBackup(FilePath);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return;
-        }
-
-        var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
-        foreach (var entry in entries)
-        {
-            _cache[entry.AppleMusicUrl] = entry;
         }
     }
 

@@ -17,27 +17,30 @@ public sealed class MetadataResolutionCache : IDisposable
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly object _persistLock = new();
     private Task _pendingPersist = Task.CompletedTask;
+    public bool IsInitialized { get; private set; }
 
     public MetadataResolutionCache(string filePath)
     {
         _filePath = filePath;
 
-        if (!File.Exists(_filePath))
+    }
+
+    public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (File.Exists(_filePath))
         {
-            return;
+            var json = await AtomicJsonFileStore.ReadTextWithBackupAsync(_filePath, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var entries = JsonSerializer.Deserialize<List<MetadataResolutionEntry>>(json) ?? [];
+                foreach (var entry in entries)
+                {
+                    _cache[BuildKey(entry.Artist, entry.Album)] = entry;
+                }
+            }
         }
 
-        var json = AtomicJsonFileStore.ReadTextWithBackup(_filePath);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return;
-        }
-
-        var entries = JsonSerializer.Deserialize<List<MetadataResolutionEntry>>(json) ?? [];
-        foreach (var entry in entries)
-        {
-            _cache[BuildKey(entry.Artist, entry.Album)] = entry;
-        }
+        IsInitialized = true;
     }
 
     public void Dispose()

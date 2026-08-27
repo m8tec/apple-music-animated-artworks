@@ -35,10 +35,11 @@ try
     builder.Host.UseSerilog();
 
     var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
-    builder.Services.AddSingleton(new JsonCacheService(cachePath));
+    builder.Services.AddSingleton(_ => new JsonCacheService(cachePath));
 
     var metadataResolutionCachePath = builder.Configuration["METADATA_RESOLUTION_CACHE_FILE_PATH"] ?? "metadata_resolution_cache.json";
-    builder.Services.AddSingleton(new MetadataResolutionCache(metadataResolutionCachePath));
+    builder.Services.AddSingleton(_ => new MetadataResolutionCache(metadataResolutionCachePath));
+    builder.Services.AddHostedService<CacheInitializationHostedService>();
 
     builder.Services.AddSingleton<SystemStatusService>();
     
@@ -46,6 +47,7 @@ try
 
     builder.Services.AddHttpClient<IAppleMusicClient, AppleMusicClient>(client =>
     {
+        client.Timeout = TimeSpan.FromSeconds(5);
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
         client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
         client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
@@ -125,6 +127,24 @@ try
 
     app.UseDefaultFiles();
     app.UseStaticFiles();
+
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api"))
+        {
+            var jsonCache = context.RequestServices.GetRequiredService<JsonCacheService>();
+            var metadataCache = context.RequestServices.GetRequiredService<MetadataResolutionCache>();
+
+            if (!jsonCache.IsInitialized || !metadataCache.IsInitialized)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsync("Cache is still initializing. Please retry shortly.");
+                return;
+            }
+        }
+
+        await next();
+    });
     
     app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
     {
