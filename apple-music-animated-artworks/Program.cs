@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -33,12 +32,6 @@ try
     Log.Information("Starting Artwork Finder Web API...");
 
     var builder = WebApplication.CreateBuilder(args);
-
-    builder.WebHost.ConfigureKestrel(options =>
-    {
-        options.Limits.MaxConcurrentConnections = 20;
-        options.Limits.MaxConcurrentUpgradedConnections = 20;
-    });
 
     builder.Host.UseSerilog();
 
@@ -116,28 +109,12 @@ try
 
     var app = builder.Build();
 
-    var requestConcurrencyLimiter = new SemaphoreSlim(20, 20);
-    app.Use(async (context, next) =>
-    {
-        if (!await requestConcurrencyLimiter.WaitAsync(0, context.RequestAborted))
-        {
-            context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            await context.Response.WriteAsync("Server is busy. Please retry shortly.");
-            return;
-        }
-
-        try
-        {
-            await next();
-        }
-        finally
-        {
-            requestConcurrencyLimiter.Release();
-        }
-    });
-
     app.UseForwardedHeaders();
     app.UseCors("AllowAll");
+
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+
     app.UseRateLimiter();
 
     app.Lifetime.ApplicationStarted.Register(() =>
@@ -152,9 +129,6 @@ try
             Log.Information("Started, but no server addresses were available yet.");
         }
     });
-
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
 
     app.Use(async (context, next) =>
     {
