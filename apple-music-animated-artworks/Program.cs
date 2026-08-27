@@ -35,10 +35,11 @@ try
     builder.Host.UseSerilog();
 
     var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
-    builder.Services.AddSingleton(new JsonCacheService(cachePath));
+    builder.Services.AddSingleton(_ => new JsonCacheService(cachePath));
 
     var metadataResolutionCachePath = builder.Configuration["METADATA_RESOLUTION_CACHE_FILE_PATH"] ?? "metadata_resolution_cache.json";
-    builder.Services.AddSingleton(new MetadataResolutionCache(metadataResolutionCachePath));
+    builder.Services.AddSingleton(_ => new MetadataResolutionCache(metadataResolutionCachePath));
+    builder.Services.AddHostedService<CacheInitializationHostedService>();
 
     builder.Services.AddSingleton<SystemStatusService>();
     
@@ -46,6 +47,7 @@ try
 
     builder.Services.AddHttpClient<IAppleMusicClient, AppleMusicClient>(client =>
     {
+        client.Timeout = TimeSpan.FromSeconds(5);
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
         client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
         client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
@@ -125,9 +127,28 @@ try
 
     app.UseDefaultFiles();
     app.UseStaticFiles();
-    
-    app.MapGet("/api/v1/status", ([FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
+
+    app.Use(async (context, next) =>
     {
+        if (context.Request.Path.StartsWithSegments("/api"))
+        {
+            var jsonCache = context.RequestServices.GetRequiredService<JsonCacheService>();
+            var metadataCache = context.RequestServices.GetRequiredService<MetadataResolutionCache>();
+
+            if (!jsonCache.IsInitialized || !metadataCache.IsInitialized)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsync("Cache is still initializing. Please retry shortly.");
+                return;
+            }
+        }
+
+        await next();
+    });
+    
+    app.MapGet("/api/v1/status", (HttpResponse response, [FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
+    {
+        response.Headers.CacheControl = "public, max-age=86400";
         var allEntries = cacheService.GetAll().ToList();
     
         int totalSearches = allEntries.Sum(e => e.SearchCount);
@@ -166,8 +187,10 @@ try
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
         [FromServices] JsonCacheService cacheService,
+        HttpResponse response,
         CancellationToken ct) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         logger.LogInformation("Incoming Request: Metadata Search -> Artist: {Artist}, Album: {Album}, Title: {Title}", 
             artist, album, title ?? "N/A");
         
@@ -200,8 +223,10 @@ try
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
         [FromServices] JsonCacheService cacheService,
+        HttpResponse response,
         CancellationToken ct) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         logger.LogInformation("Incoming Request: URL Search -> {AppleMusicUrl}", url);
         
         if (string.IsNullOrWhiteSpace(url) || !url.Contains("music.apple.com"))
@@ -230,8 +255,10 @@ try
     
     app.MapPost("/api/v1/artwork/download", async (
         DownloadReportRequest req, 
-        JsonCacheService cacheService) => 
+        JsonCacheService cacheService,
+        HttpResponse response) => 
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         if (string.IsNullOrWhiteSpace(req.M3U8Url))
             return Results.BadRequest();
 
@@ -240,8 +267,9 @@ try
         return Results.Ok();
     });
 
-    app.MapGet("/api/v1/artwork/history", ([FromServices] JsonCacheService cache) =>
+    app.MapGet("/api/v1/artwork/history", (HttpResponse response, [FromServices] JsonCacheService cache) =>
     {
+        response.Headers.CacheControl = "public, max-age=86400";
         var recent = cache.GetRecentSearches().Select(x => new 
         {
             artist = x.Artist,

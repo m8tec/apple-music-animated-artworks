@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Encodings.Web;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +12,7 @@ using Serilog;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public class JsonCacheService : IDisposable
+public class JsonCacheService : IAsyncDisposable
 {
     private string FilePath { get; }
     private readonly ConcurrentDictionary<string, ArtworkCacheEntry> _cache = new();
@@ -20,26 +21,40 @@ public class JsonCacheService : IDisposable
     private readonly Task _flushLoop;
 
     private volatile bool _isDirty;
+    public bool IsInitialized { get; private set; }
 
     public JsonCacheService(string filePath)
     {
         FilePath = filePath;
 
-        if (File.Exists(FilePath))
-        {
-            LoadFromDisk();
-        }
-
         _flushLoop = FlushLoopAsync(_shutdown.Token);
     }
 
-    public void Dispose()
+    public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (File.Exists(FilePath))
+        {
+            var json = await AtomicJsonFileStore.ReadTextWithBackupAsync(FilePath, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
+                foreach (var entry in entries)
+                {
+                    _cache[entry.AppleMusicUrl] = WithNormalizedValues(entry);
+                }
+            }
+        }
+
+        IsInitialized = true;
+    }
+
+    public async ValueTask DisposeAsync()
     {
         _shutdown.Cancel();
 
         try
         {
-            _flushLoop.GetAwaiter().GetResult();
+            await _flushLoop.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -52,9 +67,30 @@ public class JsonCacheService : IDisposable
 
     private static string NormalizeForCache(string input)
     {
-        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return string.Empty;
+        }
 
-        return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+        var normalized = new StringBuilder(input.Length);
+        foreach (char character in input)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                normalized.Append(char.ToLowerInvariant(character));
+            }
+        }
+
+        return normalized.ToString();
+    }
+
+    private static ArtworkCacheEntry WithNormalizedValues(ArtworkCacheEntry entry)
+    {
+        return entry with
+        {
+            NormalizedArtist = NormalizeForCache(entry.Artist),
+            NormalizedAlbum = NormalizeForCache(entry.Album)
+        };
     }
 
     public IEnumerable<ArtworkCacheEntry> GetAll() => _cache.Values;
@@ -76,11 +112,8 @@ public class JsonCacheService : IDisposable
         return _cache.Values
             .Where(x =>
             {
-                string cachedArtist = NormalizeForCache(x.Artist);
-                string cachedAlbum = NormalizeForCache(x.Album);
-
-                bool artistMatch = cachedArtist.Contains(queryArtist) || queryArtist.Contains(cachedArtist);
-                bool albumMatch = cachedAlbum.Contains(queryAlbum) || queryAlbum.Contains(cachedAlbum);
+                bool artistMatch = x.NormalizedArtist.Contains(queryArtist) || queryArtist.Contains(x.NormalizedArtist);
+                bool albumMatch = x.NormalizedAlbum.Contains(queryAlbum) || queryAlbum.Contains(x.NormalizedAlbum);
 
                 return artistMatch && albumMatch;
             })
@@ -119,16 +152,16 @@ public class JsonCacheService : IDisposable
         return Task.CompletedTask;
     }
 
-    public async Task SaveEntryAsync(ArtworkCacheEntry newEntry)
+    public Task SaveEntryAsync(ArtworkCacheEntry newEntry)
     {
-        _cache[newEntry.AppleMusicUrl] = newEntry;
+        _cache[newEntry.AppleMusicUrl] = WithNormalizedValues(newEntry);
         _isDirty = true;
-        await SaveIfDirtyAsync().ConfigureAwait(false);
+        return Task.CompletedTask;
     }
 
     private async Task FlushLoopAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
 
         try
         {
@@ -172,21 +205,6 @@ public class JsonCacheService : IDisposable
         finally
         {
             _fileLock.Release();
-        }
-    }
-
-    private void LoadFromDisk()
-    {
-        var json = AtomicJsonFileStore.ReadTextWithBackup(FilePath);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return;
-        }
-
-        var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
-        foreach (var entry in entries)
-        {
-            _cache[entry.AppleMusicUrl] = entry;
         }
     }
 

@@ -28,6 +28,25 @@ public static class AtomicJsonFileStore
         return string.Empty;
     }
 
+    public static async Task<string> ReadTextWithBackupAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        string? text = await TryReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            return text;
+        }
+
+        string backupPath = GetBackupPath(filePath);
+        text = await TryReadAllTextAsync(backupPath, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            await File.WriteAllTextAsync(filePath, text, cancellationToken).ConfigureAwait(false);
+            return text;
+        }
+
+        return string.Empty;
+    }
+
     public static async Task WriteAtomicallyAsync<T>(string filePath, T data, CancellationToken cancellationToken = default)
     {
         string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
@@ -73,6 +92,24 @@ public static class AtomicJsonFileStore
         try
         {
             return File.Exists(filePath) ? File.ReadAllText(filePath) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> TryReadAllTextAsync(string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return File.Exists(filePath)
+                ? await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false)
+                : null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
