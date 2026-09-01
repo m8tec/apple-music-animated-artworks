@@ -28,23 +28,23 @@ public static class AtomicJsonFileStore
         return string.Empty;
     }
 
-    public static async Task<string> ReadTextWithBackupAsync(string filePath, CancellationToken cancellationToken = default)
+    public static async Task<T?> ReadAndDeserializeWithBackupAsync<T>(string filePath, CancellationToken cancellationToken = default)
     {
-        string? text = await TryReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(text))
+        T? value = await TryReadAndDeserializeAsync<T>(filePath, cancellationToken).ConfigureAwait(false);
+        if (value is not null)
         {
-            return text;
+            return value;
         }
 
         string backupPath = GetBackupPath(filePath);
-        text = await TryReadAllTextAsync(backupPath, cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(text))
+        value = await TryReadAndDeserializeAsync<T>(backupPath, cancellationToken).ConfigureAwait(false);
+        if (value is null)
         {
-            await File.WriteAllTextAsync(filePath, text, cancellationToken).ConfigureAwait(false);
-            return text;
+            return default;
         }
 
-        return string.Empty;
+        await RestoreBackupAsync(filePath, backupPath, cancellationToken).ConfigureAwait(false);
+        return value;
     }
 
     public static async Task WriteAtomicallyAsync<T>(string filePath, T data, CancellationToken cancellationToken = default)
@@ -99,13 +99,17 @@ public static class AtomicJsonFileStore
         }
     }
 
-    private static async Task<string?> TryReadAllTextAsync(string filePath, CancellationToken cancellationToken)
+    private static async Task<T?> TryReadAndDeserializeAsync<T>(string filePath, CancellationToken cancellationToken)
     {
+        if (!File.Exists(filePath))
+        {
+            return default;
+        }
+
         try
         {
-            return File.Exists(filePath)
-                ? await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false)
-                : null;
+            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 8192, useAsync: true);
+            return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -113,7 +117,31 @@ public static class AtomicJsonFileStore
         }
         catch
         {
-            return null;
+            return default;
+        }
+    }
+
+    private static async Task RestoreBackupAsync(string filePath, string backupPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            string? directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await using var destination = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read, bufferSize: 4096, useAsync: true);
+            await using var source = new FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+            await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Best effort restore only.
         }
     }
 

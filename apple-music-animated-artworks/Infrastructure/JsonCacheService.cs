@@ -32,17 +32,10 @@ public class JsonCacheService : IAsyncDisposable
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (File.Exists(FilePath))
+        var entries = await AtomicJsonFileStore.ReadAndDeserializeWithBackupAsync<List<ArtworkCacheEntry>>(FilePath, cancellationToken).ConfigureAwait(false) ?? new();
+        foreach (var entry in entries)
         {
-            var json = await AtomicJsonFileStore.ReadTextWithBackupAsync(FilePath, cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                var entries = JsonSerializer.Deserialize<List<ArtworkCacheEntry>>(json) ?? new();
-                foreach (var entry in entries)
-                {
-                    _cache[entry.AppleMusicUrl] = WithNormalizedValues(entry);
-                }
-            }
+            _cache[entry.AppleMusicUrl] = WithNormalizedValues(entry);
         }
 
         IsInitialized = true;

@@ -28,17 +28,10 @@ public sealed class MetadataResolutionCache : IAsyncDisposable
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (File.Exists(_filePath))
+        var entries = await AtomicJsonFileStore.ReadAndDeserializeWithBackupAsync<List<MetadataResolutionEntry>>(_filePath, cancellationToken).ConfigureAwait(false) ?? [];
+        foreach (var entry in entries)
         {
-            var json = await AtomicJsonFileStore.ReadTextWithBackupAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                var entries = JsonSerializer.Deserialize<List<MetadataResolutionEntry>>(json) ?? [];
-                foreach (var entry in entries)
-                {
-                    _cache[BuildKey(entry.Artist, entry.Album)] = entry;
-                }
-            }
+            _cache[BuildKey(entry.Artist, entry.Album)] = entry;
         }
 
         IsInitialized = true;
