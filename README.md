@@ -40,7 +40,7 @@ A lightweight tool to fetch and display Apple Music’s animated album covers (H
 ## Tech Stack
 - Backend: .NET 10 (Minimal APIs, HttpClient, Regex for parsing)
 - Frontend: Plain JS, Tailwind CSS, Hls.js
-- Storage: Simple JSON-based persistence (In-memory dictionary + file flush)
+- Storage: SQLite database (existing JSON cache files are imported automatically on first start)
 
 ## Getting Started
 
