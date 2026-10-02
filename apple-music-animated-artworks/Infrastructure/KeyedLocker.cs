@@ -12,4 +12,9 @@ public class KeyedLocker
     {
         return _semaphores.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
     }
+
+    public void RemoveLock(string key)
+    {
+        _semaphores.TryRemove(key, out _);
+    }
 }

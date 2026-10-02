@@ -1,128 +1,128 @@
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
 
 namespace AnimatedArtworks.Infrastructure;
 
-public sealed class MetadataResolutionCache
+public sealed class MetadataResolutionCache(SqliteDatabase database)
 {
-    private readonly string _filePath;
-    private readonly ConcurrentDictionary<string, MetadataResolutionEntry> _cache = new();
-    private readonly SemaphoreSlim _fileLock = new(1, 1);
-
-    public MetadataResolutionCache(string filePath)
-    {
-        _filePath = filePath;
-
-        if (!File.Exists(_filePath))
-        {
-            return;
-        }
-
-        var json = File.ReadAllText(_filePath);
-        var entries = JsonSerializer.Deserialize<List<MetadataResolutionEntry>>(json) ?? [];
-        foreach (var entry in entries)
-        {
-            _cache[BuildKey(entry.Artist, entry.Album)] = entry;
-        }
-    }
-
     public MetadataResolutionLookup GetLookup(string artist, string album, TimeSpan noMatchTtl)
     {
-        if (_cache.TryGetValue(BuildKey(artist, album), out var entry))
-        {
-            if (entry.Status == MetadataResolutionStatus.NoMatch)
-            {
-                bool isFreshNoMatch = DateTime.UtcNow - entry.LastResolved <= noMatchTtl;
-                if (isFreshNoMatch)
-                {
-                    return new(MetadataResolutionStatus.NoMatch);
-                }
+        string key = CacheKeyNormalizer.BuildMetadataKey(artist, album);
 
-                _cache.TryRemove(BuildKey(artist, album), out _);
-                _ = PersistAsync();
+        using var connection = database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT status, resolved_apple_music_url, last_resolved FROM metadata_resolutions WHERE key = $key";
+        command.Parameters.AddWithValue("$key", key);
+
+        MetadataResolutionStatus status;
+        string? resolvedAppleMusicUrl;
+        DateTime lastResolved;
+
+        using (var reader = command.ExecuteReader())
+        {
+            if (!reader.Read())
+            {
                 return new(MetadataResolutionStatus.None);
             }
 
-            return new(MetadataResolutionStatus.Resolved, entry.ResolvedAppleMusicUrl);
+            status = (MetadataResolutionStatus)reader.GetInt32(0);
+            resolvedAppleMusicUrl = reader.IsDBNull(1) ? null : reader.GetString(1);
+            lastResolved = SqliteDatabase.FromUnixMilliseconds(reader.GetInt64(2));
         }
 
-        return new(MetadataResolutionStatus.None);
+        if (status == MetadataResolutionStatus.NoMatch)
+        {
+            bool isFreshNoMatch = DateTime.UtcNow - lastResolved <= noMatchTtl;
+            if (isFreshNoMatch)
+            {
+                return new(MetadataResolutionStatus.NoMatch);
+            }
+
+            Delete(connection, key);
+            return new(MetadataResolutionStatus.None);
+        }
+
+        return new(MetadataResolutionStatus.Resolved, resolvedAppleMusicUrl);
     }
 
-    public async Task SaveResolvedUrlAsync(string artist, string album, string resolvedAppleMusicUrl)
+    public void SaveResolvedUrl(string artist, string album, string resolvedAppleMusicUrl)
     {
-        var entry = new MetadataResolutionEntry(
+        Save(new MetadataResolutionEntry(
             Artist: artist,
             Album: album,
             ResolvedAppleMusicUrl: resolvedAppleMusicUrl,
             Status: MetadataResolutionStatus.Resolved,
             LastResolved: DateTime.UtcNow
-        );
-
-        _cache[BuildKey(artist, album)] = entry;
-        await PersistAsync();
+        ));
     }
 
-    public async Task SaveNoMatchAsync(string artist, string album)
+    public void SaveNoMatch(string artist, string album)
     {
-        var entry = new MetadataResolutionEntry(
+        Save(new MetadataResolutionEntry(
             Artist: artist,
             Album: album,
             ResolvedAppleMusicUrl: null,
             Status: MetadataResolutionStatus.NoMatch,
             LastResolved: DateTime.UtcNow
-        );
-
-        _cache[BuildKey(artist, album)] = entry;
-        await PersistAsync();
+        ));
     }
 
-    public async Task RemoveResolvedUrlAsync(string artist, string album)
+    public void RemoveResolvedUrl(string artist, string album)
     {
-        _cache.TryRemove(BuildKey(artist, album), out _);
-        await PersistAsync();
+        using var connection = database.OpenConnection();
+        Delete(connection, CacheKeyNormalizer.BuildMetadataKey(artist, album));
     }
 
-    private async Task PersistAsync()
+    private void Save(MetadataResolutionEntry entry)
     {
-        await _fileLock.WaitAsync();
-        try
+        using var connection = database.OpenConnection();
+        using var command = CreateUpsertCommand(connection, overwriteExisting: true);
+        BindEntry(command, entry);
+        command.ExecuteNonQuery();
+    }
+
+    private static void Delete(SqliteConnection connection, string key)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM metadata_resolutions WHERE key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        command.ExecuteNonQuery();
+    }
+
+    internal static SqliteCommand CreateUpsertCommand(SqliteConnection connection, bool overwriteExisting)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = $"""
+            INSERT INTO metadata_resolutions (key, artist, album, resolved_apple_music_url, status, last_resolved)
+            VALUES ($key, $artist, $album, $resolvedUrl, $status, $lastResolved)
+            {(overwriteExisting
+                ? """
+                  ON CONFLICT (key) DO UPDATE SET
+                      artist = excluded.artist,
+                      album = excluded.album,
+                      resolved_apple_music_url = excluded.resolved_apple_music_url,
+                      status = excluded.status,
+                      last_resolved = excluded.last_resolved
+                  """
+                : "ON CONFLICT (key) DO NOTHING")}
+            """;
+
+        foreach (string name in new[] { "$key", "$artist", "$album", "$resolvedUrl", "$status", "$lastResolved" })
         {
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
+            command.Parameters.Add(new SqliteParameter { ParameterName = name });
+        }
 
-            var json = JsonSerializer.Serialize(_cache.Values, options);
-            await File.WriteAllTextAsync(_filePath, json);
-        }
-        finally
-        {
-            _fileLock.Release();
-        }
+        return command;
     }
 
-    private static string BuildKey(string artist, string album)
+    internal static void BindEntry(SqliteCommand command, MetadataResolutionEntry entry)
     {
-        return $"{NormalizeForKey(artist)}|{NormalizeForKey(album)}";
-    }
-
-    private static string NormalizeForKey(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return string.Empty;
-        }
-
-        return new string(input.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+        command.Parameters["$key"].Value = CacheKeyNormalizer.BuildMetadataKey(entry.Artist, entry.Album);
+        command.Parameters["$artist"].Value = entry.Artist ?? string.Empty;
+        command.Parameters["$album"].Value = entry.Album ?? string.Empty;
+        command.Parameters["$resolvedUrl"].Value = (object?)entry.ResolvedAppleMusicUrl ?? DBNull.Value;
+        command.Parameters["$status"].Value = (int)entry.Status;
+        command.Parameters["$lastResolved"].Value = SqliteDatabase.ToUnixMilliseconds(entry.LastResolved);
     }
 }
 

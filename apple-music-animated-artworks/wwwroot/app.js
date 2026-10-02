@@ -361,6 +361,8 @@ if (ui.variantTallBtn) {
     const statsContainer = document.getElementById('statsContainer');
     const statSearches = document.getElementById('statSearches');
     const statDownloads = document.getElementById('statDownloads');
+    const statAnimated = document.getElementById('statAnimatedEntries');
+    const statCache = document.getElementById('statCacheEntries');
 
     try {
         const res = await fetch('/api/v1/status');
@@ -371,18 +373,19 @@ if (ui.variantTallBtn) {
             statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20 transition-colors";
             statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75";
             statusDot.className = "relative inline-flex rounded-full h-2 w-2 bg-green-500";
-            
-            if (data.totalSearches !== undefined && data.totalDownloads !== undefined) {
-                statSearches.textContent = data.totalSearches.toLocaleString();
-                statDownloads.textContent = data.totalDownloads.toLocaleString();
-                statsContainer.classList.remove('hidden');
-                statsContainer.classList.add('flex');
-            }
         } else {
             statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-400 text-xs font-medium border border-yellow-500/20 transition-colors";
             statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75";
             statusDot.className = "relative inline-flex rounded-full h-2 w-2 bg-yellow-500";
         }
+
+        statSearches.textContent = data.totalSearches.toLocaleString() || '0';
+        statDownloads.textContent = data.totalDownloads.toLocaleString() || '0';
+        statAnimated.textContent = data.totalAnimatedEntries.toLocaleString() || '0';
+        statCache.textContent = data.totalCacheEntries.toLocaleString() || '0';
+        
+        statsContainer.classList.remove('hidden');
+        statsContainer.classList.add('flex');
     } catch (e) {
         statusText.textContent = "Backend Offline";
         statusEl.className = "inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 transition-colors";

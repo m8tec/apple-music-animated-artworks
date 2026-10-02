@@ -9,7 +9,7 @@ namespace AnimatedArtworks.Application;
 
 public partial class ArtworkService(
     IAppleMusicClient appleMusicClient,
-    JsonCacheService cache,
+    ArtworkCache cache,
     MetadataResolutionCache metadataResolutionCache,
     KeyedLocker locker)
 {
@@ -61,7 +61,7 @@ public partial class ArtworkService(
             return (cachedEntry, true);
         }
 
-        Log.Information(
+        Log.Debug(
             cachedEntry != null
                 ? "Cache entry is missing tall artwork: {AppleMusicUrl}"
                 : "URL cache miss: {AppleMusicUrl}", normalizedUrl);
@@ -112,8 +112,8 @@ public partial class ArtworkService(
                 SearchCount: searchCount
             );
 
-            await cache.SaveEntryAsync(newEntry);
-            Log.Information("Saved URL cache entry: {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
+            cache.SaveEntry(newEntry);
+            Log.Information("Added artwork entry: {AppleMusicUrl}, Artist: {Artist}, Album: {Album}, HasAnimatedArtwork: {HasAnimatedArtwork}",
                 normalizedUrl,
                 artist,
                 album,
@@ -124,6 +124,7 @@ public partial class ArtworkService(
         finally
         {
             semaphore.Release();
+            locker.RemoveLock(normalizedUrl);
         }
     }
 
@@ -149,7 +150,7 @@ public partial class ArtworkService(
             }
 
             Log.Information("Metadata resolution cache entry is stale. Removing alias for Artist={Artist}, Album={Album}", artist, album);
-            await metadataResolutionCache.RemoveResolvedUrlAsync(artist, album);
+            metadataResolutionCache.RemoveResolvedUrl(artist, album);
         }
 
         ArtworkCacheEntry? cachedEntry = cache.GetByArtistAndAlbum(artist, album);
@@ -158,6 +159,9 @@ public partial class ArtworkService(
             if (!NeedsTallArtworkRefresh(cachedEntry))
             {
                 Log.Information("Cache hit (by metadata): Artist={Artist}, Album={Album}.", artist, album);
+
+                // Remember the match, so the next request for this pair is a key lookup instead of a fuzzy scan.
+                metadataResolutionCache.SaveResolvedUrl(artist, album, cachedEntry.AppleMusicUrl);
                 return (cachedEntry, true);
             }
 
@@ -174,7 +178,7 @@ public partial class ArtworkService(
 
         if (webSearchResult.Status == AppleMusicWebSearchStatus.NoMatch)
         {
-            await metadataResolutionCache.SaveNoMatchAsync(artist, album);
+            metadataResolutionCache.SaveNoMatch(artist, album);
             Log.Information("Search returned no match for Artist={Artist}, Album={Album}", artist, album);
             return (null, false);
         }
@@ -199,7 +203,7 @@ public partial class ArtworkService(
         }
 
         Log.Information("Search resolved URL: {AppleMusicUrl}", webSearchResult.Url);
-        await metadataResolutionCache.SaveResolvedUrlAsync(artist, album, webSearchResult.Url);
+        metadataResolutionCache.SaveResolvedUrl(artist, album, webSearchResult.Url);
 
         return await GetArtworkByUrlAsync(webSearchResult.Url, ct);
     }
