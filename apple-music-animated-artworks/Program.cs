@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.RateLimiting;
@@ -35,11 +36,17 @@ try
 
     builder.Host.UseSerilog();
 
-    var cachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
-    builder.Services.AddSingleton(_ => new JsonCacheService(cachePath));
+    // The JSON paths are only read once, to import the former JSON caches into the SQLite database.
+    var legacyCachePath = builder.Configuration["CACHE_FILE_PATH"] ?? "cache_database.json";
+    var legacyMetadataResolutionCachePath = builder.Configuration["METADATA_RESOLUTION_CACHE_FILE_PATH"] ?? "metadata_resolution_cache.json";
+    var databasePath = builder.Configuration["DATABASE_FILE_PATH"]
+                       ?? Path.Combine(Path.GetDirectoryName(legacyCachePath) ?? string.Empty, "cache.db");
 
-    var metadataResolutionCachePath = builder.Configuration["METADATA_RESOLUTION_CACHE_FILE_PATH"] ?? "metadata_resolution_cache.json";
-    builder.Services.AddSingleton(_ => new MetadataResolutionCache(metadataResolutionCachePath));
+    builder.Services.AddSingleton(_ => new SqliteDatabase(databasePath));
+    builder.Services.AddSingleton(new LegacyJsonCachePaths(legacyCachePath, legacyMetadataResolutionCachePath));
+    builder.Services.AddSingleton<LegacyJsonCacheImporter>();
+    builder.Services.AddSingleton<ArtworkCache>();
+    builder.Services.AddSingleton<MetadataResolutionCache>();
     builder.Services.AddHostedService<CacheInitializationHostedService>();
 
     builder.Services.AddSingleton<SystemStatusService>();
@@ -134,10 +141,9 @@ try
     {
         if (context.Request.Path.StartsWithSegments("/api"))
         {
-            var jsonCache = context.RequestServices.GetRequiredService<JsonCacheService>();
-            var metadataCache = context.RequestServices.GetRequiredService<MetadataResolutionCache>();
+            var database = context.RequestServices.GetRequiredService<SqliteDatabase>();
 
-            if (!jsonCache.IsInitialized || !metadataCache.IsInitialized)
+            if (!database.IsInitialized)
             {
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 await context.Response.WriteAsync("Cache is still initializing. Please retry shortly.");
@@ -148,15 +154,15 @@ try
         await next();
     });
     
-    app.MapGet("/api/v1/status", (HttpResponse response, [FromServices] SystemStatusService statusService, [FromServices] JsonCacheService cacheService) =>
+    app.MapGet("/api/v1/status", (HttpResponse response, [FromServices] SystemStatusService statusService, [FromServices] ArtworkCache cacheService) =>
     {
         response.Headers.CacheControl = "public, max-age=86400";
-        var allEntries = cacheService.GetAll().ToList();
-    
-        int totalSearches = allEntries.Sum(e => e.SearchCount);
-        int totalDownloads = allEntries.Sum(e => e.DownloadCount);
-        int totalCacheEntries = allEntries.Count;
-        int totalAnimatedEntries = allEntries.Count(e => (e.M3u8Url != null && e.M3u8Url != "NONE") || (e.M3u8UrlTall != null && e.M3u8UrlTall != "NONE"));
+        ArtworkCacheStats stats = cacheService.GetStats();
+
+        long totalSearches = stats.TotalSearches;
+        long totalDownloads = stats.TotalDownloads;
+        long totalCacheEntries = stats.TotalCacheEntries;
+        long totalAnimatedEntries = stats.TotalAnimatedEntries;
 
         if (statusService.IsRateLimited)
         {
@@ -188,7 +194,7 @@ try
         [FromQuery] string? title,
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
-        [FromServices] JsonCacheService cacheService,
+        [FromServices] ArtworkCache cacheService,
         HttpResponse response,
         CancellationToken ct) =>
     {
@@ -203,7 +209,7 @@ try
 
         if (entry != null)
         {
-            await cacheService.IncrementSearchCountAsync(entry);
+            cacheService.IncrementSearchCount(entry);
 
             if ((entry.M3u8Url != null && entry.M3u8Url != "NONE") || (entry.M3u8UrlTall != null && entry.M3u8UrlTall != "NONE"))
             {
@@ -224,7 +230,7 @@ try
         [FromQuery] string url, 
         [FromServices] ArtworkService service,
         [FromServices] ILogger<Program> logger,
-        [FromServices] JsonCacheService cacheService,
+        [FromServices] ArtworkCache cacheService,
         HttpResponse response,
         CancellationToken ct) =>
     {
@@ -238,7 +244,7 @@ try
 
         if (entry != null)
         {
-            await cacheService.IncrementSearchCountAsync(entry);
+            cacheService.IncrementSearchCount(entry);
             
             if ((entry.M3u8Url != null && entry.M3u8Url != "NONE") || (entry.M3u8UrlTall != null && entry.M3u8UrlTall != "NONE"))
             {
@@ -255,21 +261,21 @@ try
         return Results.NotFound(new { message = "No animated artwork found." });
     }).RequireRateLimiting("ApiRateLimit");
     
-    app.MapPost("/api/v1/artwork/download", async (
+    app.MapPost("/api/v1/artwork/download", (
         DownloadReportRequest req, 
-        JsonCacheService cacheService,
+        ArtworkCache cacheService,
         HttpResponse response) => 
     {
         response.Headers.CacheControl = "public, max-age=86400";
         if (string.IsNullOrWhiteSpace(req.M3U8Url))
             return Results.BadRequest();
 
-        await cacheService.IncrementDownloadCountAsync(req.M3U8Url);
+        cacheService.IncrementDownloadCount(req.M3U8Url);
         
         return Results.Ok();
     }).RequireRateLimiting("ApiRateLimit");
 
-    app.MapGet("/api/v1/artwork/history", (HttpResponse response, [FromServices] JsonCacheService cache) =>
+    app.MapGet("/api/v1/artwork/history", (HttpResponse response, [FromServices] ArtworkCache cache) =>
     {
         response.Headers.CacheControl = "public, max-age=86400";
         var recent = cache.GetRecentSearches().Select(x => new 

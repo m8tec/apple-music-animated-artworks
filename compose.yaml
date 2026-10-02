@@ -8,6 +8,8 @@
       - ./data:/app/data
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - DATABASE_FILE_PATH=/app/data/cache.db
+      # Former JSON caches. If these files exist, they are imported into the database once.
       - CACHE_FILE_PATH=/app/data/cache_database.json
       - METADATA_RESOLUTION_CACHE_FILE_PATH=./data/cache_metadata_resolution.json
     restart: always

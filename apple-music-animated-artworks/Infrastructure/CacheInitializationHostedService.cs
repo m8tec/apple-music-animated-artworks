@@ -7,13 +7,15 @@ using Microsoft.Extensions.Logging;
 namespace AnimatedArtworks.Infrastructure;
 
 public sealed class CacheInitializationHostedService(
-    JsonCacheService jsonCache,
-    MetadataResolutionCache metadataCache,
+    SqliteDatabase database,
+    LegacyJsonCacheImporter legacyImporter,
+    IHostApplicationLifetime lifetime,
     ILogger<CacheInitializationHostedService> logger) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _ = InitializeAsync(cancellationToken);
+        // Runs in the background so the server can already answer (with 503) during a long import.
+        _ = Task.Run(() => InitializeAsync(lifetime.ApplicationStopping), CancellationToken.None);
         return Task.CompletedTask;
     }
 
@@ -23,11 +25,14 @@ public sealed class CacheInitializationHostedService(
     {
         try
         {
-            await Task.WhenAll(
-                jsonCache.InitializeAsync(cancellationToken).AsTask(),
-                metadataCache.InitializeAsync(cancellationToken).AsTask()).ConfigureAwait(false);
+            database.Initialize();
+            await legacyImporter.ImportAsync(cancellationToken).ConfigureAwait(false);
 
-            logger.LogInformation("Cache initialization completed.");
+            // A large import leaves a write-ahead log of the same size behind.
+            database.TruncateWriteAheadLog();
+            database.MarkInitialized();
+
+            logger.LogInformation("Cache initialization completed. Database: {DatabaseFile}", database.FilePath);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -35,7 +40,11 @@ public sealed class CacheInitializationHostedService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Cache initialization failed. API requests will remain unavailable.");
+            // Without a cache every request would hit Apple Music, so exit instead of
+            // staying up as a process that answers 503 forever.
+            logger.LogCritical(ex, "Cache initialization failed. Shutting down.");
+            Environment.ExitCode = 1;
+            lifetime.StopApplication();
         }
     }
 }
