@@ -78,19 +78,30 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
             string htmlContent = await response.Content.ReadAsStringAsync(ct);
 
             MatchCollection matches = AppleMusicLinkRegex().Matches(htmlContent);
+            string? editionMatchUrl = null;
 
             foreach (Match match in matches)
             {
                 string foundUrl = match.Groups[1].Value;
                 string foundAlbumSlug = Uri.UnescapeDataString(match.Groups[2].Value).Replace('-', ' ');
 
-                if (ContainsAlbumName(foundAlbumSlug, album))
+                switch (MatchAlbumName(foundAlbumSlug, album))
                 {
-                    Log.Debug("Found matching album: {Url} for query: {Query}", foundUrl, query);
-                    return new(AppleMusicWebSearchStatus.Found, foundUrl);
+                    case AlbumNameMatch.Exact:
+                        Log.Debug("Found matching album: {Url} for query: {Query}", foundUrl, query);
+                        return new(AppleMusicWebSearchStatus.Found, foundUrl);
+                    case AlbumNameMatch.Edition:
+                        editionMatchUrl ??= foundUrl;
+                        continue;
                 }
 
                 Log.Debug("Rejected non-matching album hit. Requested: {RequestedAlbum}, Found: {FoundAlbum}, Url: {Url}", album, foundAlbumSlug, foundUrl);
+            }
+
+            if (editionMatchUrl != null)
+            {
+                Log.Debug("Found matching album edition: {Url} for query: {Query}", editionMatchUrl, query);
+                return new(AppleMusicWebSearchStatus.Found, editionMatchUrl);
             }
 
             Log.Debug("Found no matching album links in HTML for query: {Query}", query);
@@ -107,17 +118,38 @@ public partial class AppleMusicClient(HttpClient httpClient, SystemStatusService
         }
     }
 
-    private static bool ContainsAlbumName(string foundAlbumName, string requestedAlbumName)
+    private enum AlbumNameMatch
     {
-        string normalizedFound = NormalizeForComparison(foundAlbumName);
-        string normalizedRequested = NormalizeForComparison(requestedAlbumName);
+        None,
+        Exact,
+        Edition
+    }
 
-        if (string.IsNullOrWhiteSpace(normalizedFound) || string.IsNullOrWhiteSpace(normalizedRequested))
+    private static AlbumNameMatch MatchAlbumName(string foundAlbumSlug, string requestedAlbumName)
+    {
+        // The slug has lost its brackets, so edition notes can only be told apart by their words.
+        string normalizedFound = NormalizeForComparison(foundAlbumSlug);
+        string normalizedRequested = NormalizeForComparison(requestedAlbumName);
+        string normalizedRequestedBase = NormalizeForComparison(CacheKeyNormalizer.StripEditionSuffixes(requestedAlbumName));
+
+        if (string.IsNullOrWhiteSpace(normalizedFound) || string.IsNullOrWhiteSpace(normalizedRequestedBase))
         {
-            return false;
+            return AlbumNameMatch.None;
         }
 
-        return normalizedFound.Contains(normalizedRequested, StringComparison.Ordinal);
+        if (normalizedFound == normalizedRequested || normalizedFound == normalizedRequestedBase)
+        {
+            return AlbumNameMatch.Exact;
+        }
+
+        // "plastic beach deluxe version" is an edition of "Plastic Beach", "time tour live" is not one of "Time".
+        if (normalizedFound.StartsWith(normalizedRequestedBase + " ", StringComparison.Ordinal)
+            && CacheKeyNormalizer.IsEditionNote(normalizedFound[(normalizedRequestedBase.Length + 1)..]))
+        {
+            return AlbumNameMatch.Edition;
+        }
+
+        return AlbumNameMatch.None;
     }
 
     private static string NormalizeForComparison(string input)
