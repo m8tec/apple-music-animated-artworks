@@ -53,7 +53,9 @@ public sealed class LegacyJsonCacheImporter(
                 MetadataResolutionCache.BindEntry(command, entry);
                 return true;
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            afterImport: (connection, transaction) => MetadataResolutionCache.DeleteMismatchedResolutions(connection, transaction))
+            .ConfigureAwait(false);
     }
 
     private async Task ImportAsync<T>(
@@ -61,7 +63,8 @@ public sealed class LegacyJsonCacheImporter(
         string filePath,
         Func<SqliteConnection, SqliteCommand> createCommand,
         Func<SqliteCommand, T, bool> bindEntry,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<SqliteConnection, SqliteTransaction>? afterImport = null)
     {
         using var connection = database.OpenConnection();
 
@@ -82,7 +85,7 @@ public sealed class LegacyJsonCacheImporter(
 
             try
             {
-                long count = await ImportFileAsync(connection, importName, candidate, createCommand, bindEntry, cancellationToken).ConfigureAwait(false);
+                long count = await ImportFileAsync(connection, importName, candidate, createCommand, bindEntry, afterImport, cancellationToken).ConfigureAwait(false);
                 logger.LogInformation("Imported {Count} entries from {File} in {Elapsed}.", count, candidate, stopwatch.Elapsed);
                 MarkFileAsMigrated(candidate);
                 return;
@@ -102,6 +105,7 @@ public sealed class LegacyJsonCacheImporter(
         string filePath,
         Func<SqliteConnection, SqliteCommand> createCommand,
         Func<SqliteCommand, T, bool> bindEntry,
+        Action<SqliteConnection, SqliteTransaction>? afterImport,
         CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1 << 16, useAsync: true);
@@ -121,6 +125,8 @@ public sealed class LegacyJsonCacheImporter(
             command.ExecuteNonQuery();
             count++;
         }
+
+        afterImport?.Invoke(connection, transaction);
 
         using (var marker = connection.CreateCommand())
         {

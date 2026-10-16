@@ -89,6 +89,33 @@ public sealed class MetadataResolutionCache(SqliteDatabase database)
         command.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Deletes resolutions that point to an album whose artist or title (without edition notes) differs from
+    /// the requested one. Older versions stored such resolutions from a substring match, e.g. "Time Tour Live"
+    /// to "Time"; legitimate ones among them are resolved again by a web search.
+    /// </summary>
+    internal static int DeleteMismatchedResolutions(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        SqliteDatabase.RegisterNormalizationFunctions(connection);
+
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        // The key starts with the normalized artist, see CacheKeyNormalizer.BuildMetadataKey.
+        command.CommandText = """
+            DELETE FROM metadata_resolutions
+            WHERE status = $resolved
+              AND EXISTS (
+                  SELECT 1
+                  FROM artworks
+                  WHERE artworks.apple_music_url = metadata_resolutions.resolved_apple_music_url
+                    AND (artworks.normalized_artist <> substr(metadata_resolutions.key, 1, instr(metadata_resolutions.key, '|') - 1)
+                         OR artworks.base_album <> normalize_album_title(metadata_resolutions.album))
+              )
+            """;
+        command.Parameters.AddWithValue("$resolved", (int)MetadataResolutionStatus.Resolved);
+        return command.ExecuteNonQuery();
+    }
+
     internal static SqliteCommand CreateUpsertCommand(SqliteConnection connection, bool overwriteExisting)
     {
         var command = connection.CreateCommand();

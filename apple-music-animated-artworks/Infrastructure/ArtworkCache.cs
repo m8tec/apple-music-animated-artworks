@@ -30,7 +30,7 @@ public sealed class ArtworkCache(SqliteDatabase database)
     public ArtworkCacheEntry? GetByArtistAndAlbum(string artist, string album)
     {
         string queryArtist = CacheKeyNormalizer.Normalize(artist);
-        string queryAlbum = CacheKeyNormalizer.Normalize(album);
+        string queryAlbum = CacheKeyNormalizer.NormalizeAlbumTitle(album);
 
         if (string.IsNullOrEmpty(queryArtist) || string.IsNullOrEmpty(queryAlbum))
             return null;
@@ -40,16 +40,11 @@ public sealed class ArtworkCache(SqliteDatabase database)
         command.CommandText = $"""
             SELECT {EntryColumns}
             FROM artworks
-            WHERE apple_music_url = (
-                SELECT apple_music_url
-                FROM artworks
-                WHERE (instr(normalized_artist, $artist) > 0 OR instr($artist, normalized_artist) > 0)
-                  AND (instr(normalized_album, $album) > 0 OR instr($album, normalized_album) > 0)
-                -- prefer existing m3u8-urls, then shorter album names, as they are more likely to be the
-                -- original release instead of a special edition (e.g. "A Cappella Super Deluxe Version")
-                ORDER BY is_animated DESC, length(album)
-                LIMIT 1
-            )
+            WHERE normalized_artist = $artist AND base_album = $album
+            -- prefer existing m3u8-urls, then shorter album names, as they are more likely to be the
+            -- original release instead of a special edition (e.g. "A Cappella Super Deluxe Version")
+            ORDER BY is_animated DESC, length(album)
+            LIMIT 1
             """;
         command.Parameters.AddWithValue("$artist", queryArtist);
         command.Parameters.AddWithValue("$album", queryAlbum);
@@ -146,10 +141,10 @@ public sealed class ArtworkCache(SqliteDatabase database)
         var command = connection.CreateCommand();
         command.CommandText = $"""
             INSERT INTO artworks (
-                apple_music_url, artist, album, normalized_artist, normalized_album,
+                apple_music_url, artist, album, normalized_artist, normalized_album, base_album,
                 m3u8_url, m3u8_url_tall, is_animated, last_fetched, download_count, search_count)
             VALUES (
-                $url, $artist, $album, $normalizedArtist, $normalizedAlbum,
+                $url, $artist, $album, $normalizedArtist, $normalizedAlbum, $baseAlbum,
                 $m3u8Url, $m3u8UrlTall, $isAnimated, $lastFetched, $downloadCount, $searchCount)
             {(overwriteExisting
                 ? """
@@ -158,6 +153,7 @@ public sealed class ArtworkCache(SqliteDatabase database)
                       album = excluded.album,
                       normalized_artist = excluded.normalized_artist,
                       normalized_album = excluded.normalized_album,
+                      base_album = excluded.base_album,
                       m3u8_url = excluded.m3u8_url,
                       m3u8_url_tall = excluded.m3u8_url_tall,
                       is_animated = excluded.is_animated,
@@ -170,7 +166,7 @@ public sealed class ArtworkCache(SqliteDatabase database)
 
         foreach (string name in new[]
                  {
-                     "$url", "$artist", "$album", "$normalizedArtist", "$normalizedAlbum", "$m3u8Url",
+                     "$url", "$artist", "$album", "$normalizedArtist", "$normalizedAlbum", "$baseAlbum", "$m3u8Url",
                      "$m3u8UrlTall", "$isAnimated", "$lastFetched", "$downloadCount", "$searchCount"
                  })
         {
@@ -190,6 +186,7 @@ public sealed class ArtworkCache(SqliteDatabase database)
         command.Parameters["$album"].Value = album;
         command.Parameters["$normalizedArtist"].Value = CacheKeyNormalizer.Normalize(artist);
         command.Parameters["$normalizedAlbum"].Value = CacheKeyNormalizer.Normalize(album);
+        command.Parameters["$baseAlbum"].Value = CacheKeyNormalizer.NormalizeAlbumTitle(album);
         command.Parameters["$m3u8Url"].Value = (object?)entry.M3u8Url ?? DBNull.Value;
         command.Parameters["$m3u8UrlTall"].Value = (object?)entry.M3u8UrlTall ?? DBNull.Value;
         command.Parameters["$isAnimated"].Value = CacheKeyNormalizer.HasAnimatedArtwork(entry.M3u8Url, entry.M3u8UrlTall) ? 1 : 0;
